@@ -60,7 +60,7 @@ PDFReader/
 2. **运行主程序**
    - 在项目根目录下运行：
    ```bash
-   python src/pdf_reader.py
+   python src/main.py
    ```
    - 启动后会自动处理默认 PDF 文件（可在代码中修改），或根据提示输入 PDF 文件名（如 `your_file.pdf`），无需包含路径。
 

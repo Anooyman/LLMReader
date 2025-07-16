@@ -539,12 +539,3 @@ class PDFReader(LLMBase):
             print(f"ChatBot: {answer}")
             print("======"*10)
             chat_count += 1
-
-if __name__=="__main__":
-    """
-    脚本主入口，演示 PDFReader 的用法。
-    Main script entry, demonstrates usage of PDFReader.
-    """
-    pdf_obj = PDFReader()
-    logger.info("启动PDF处理示例...")
-    pdf_obj.main("1706.03762v7.pdf")
