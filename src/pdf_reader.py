@@ -38,8 +38,10 @@ class PDFReader(LLMBase):
         provider: 'azure'（默认）、'openai'、'ollama'。
         """
         super().__init__(provider)
-        self.pdf_image_path = "pdf_image"
-        self.json_data_path = "json_data"
+        self.pdf_image_path = PDF_IMAGE_PATH
+        self.json_data_path = JSON_DATA_PATH
+        self.pdf_path = PDF_PATH
+        self.vector_db_path = VECTOR_DB_PATH
         self.agenda_dict = {}
         self.pdf_raw_data = None
         self.vector_db = None
@@ -339,9 +341,9 @@ class PDFReader(LLMBase):
         vector_db_path = os.path.join(self.vector_db_path, f"{pdf_file_path}_data_index")
         logger.info(f"开始处理PDF主流程: {pdf_file_path}")
         try:
-            with open(f"json_data/{pdf_file_path}.json", 'r', encoding='utf-8') as f:
+            with open(os.path.join(self.json_data_path, f"{pdf_file_path}.json"), 'r', encoding='utf-8') as f:
                 self.pdf_raw_data = json.load(f)
-            logger.info(f"成功读取本地JSON数据: json_data/{pdf_file_path}.json")
+            logger.info(f"成功读取本地JSON数据: {os.path.join(self.json_data_path, f'{pdf_file_path}.json')}")
         except Exception as e:
             logger.warning(f"读取本地JSON失败，将重新提取: {e}")
             self.pdf_raw_data = self.extract_pdf_data(pdf_file_path)

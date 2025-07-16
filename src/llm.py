@@ -18,7 +18,6 @@ from abc import ABC, abstractmethod
 from config import (
     LLM_CONFIG,
     LLM_EMBEDDING_CONFIG,
-    AgentType
 )
 logging.basicConfig(
     level=logging.INFO,  # 可根据需要改为 DEBUG
@@ -163,7 +162,7 @@ class LLMBase:
 
     def get_message_history(self, session_id=None):
         # 根据 session_id 获取对应的对话历史
-        if session_id not in self.message_histories or session_id == AgentType.REACT:
+        if session_id not in self.message_histories:
             if session_id in ["chat"]:
                 self.message_histories[session_id] = LimitedChatMessageHistory()
             else:
