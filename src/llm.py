@@ -9,10 +9,16 @@ from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import InMemoryChatMessageHistory
 from pydantic import Field
 
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_community.chat_models import ChatOllama
+from langchain_community.embeddings import OllamaEmbeddings
+
+from abc import ABC, abstractmethod
 
 from config import (
     LLM_CONFIG,
     LLM_EMBEDDING_CONFIG,
+    AgentType
 )
 logging.basicConfig(
     level=logging.INFO,  # 可根据需要改为 DEBUG
@@ -61,98 +67,103 @@ class LimitedChatMessageHistory(InMemoryChatMessageHistory):
             self.messages.pop(0)
 
 
+class LLMProviderBase(ABC):
+    """
+    LLM Provider 抽象基类，定义统一接口。
+    """
+    @abstractmethod
+    def get_chat_model(self, **kwargs):
+        pass
+
+    @abstractmethod
+    def get_embedding_model(self, **kwargs):
+        pass
+
+class AzureLLMProvider(LLMProviderBase):
+
+    def get_chat_model(self, **kwargs):
+        return AzureChatOpenAI(
+            openai_api_key=kwargs.get("openai_api_key", LLM_CONFIG.get("api_key")),
+            openai_api_version=kwargs.get("openai_api_version", LLM_CONFIG.get("api_version")),
+            azure_endpoint=kwargs.get("azure_endpoint", LLM_CONFIG.get("azure_endpoint")),
+            deployment_name=kwargs.get("deployment_name", LLM_CONFIG.get("deployment_name")),
+            model_name=kwargs.get("model_name", LLM_CONFIG.get("model_name")),
+            temperature=kwargs.get("temperature", 0.7),
+            max_retries=kwargs.get("max_retries", 5)
+        )
+
+    def get_embedding_model(self, **kwargs):
+        return AzureOpenAIEmbeddings(
+            openai_api_key=kwargs.get("openai_api_key", LLM_EMBEDDING_CONFIG.get("api_key")),
+            openai_api_version=kwargs.get("openai_api_version", LLM_EMBEDDING_CONFIG.get("api_version")),
+            azure_endpoint=kwargs.get("azure_endpoint", LLM_EMBEDDING_CONFIG.get("azure_endpoint")),
+            deployment=kwargs.get("deployment", LLM_EMBEDDING_CONFIG.get("deployment")),
+            model=kwargs.get("model", LLM_EMBEDDING_CONFIG.get("model")),
+            max_retries=kwargs.get("max_retries", 5)
+        )
+
+class OpenAILLMProvider(LLMProviderBase):
+    def get_chat_model(self, **kwargs):
+        return ChatOpenAI(
+            openai_api_key=kwargs.get("openai_api_key", LLM_CONFIG.get("openai_api_key")),
+            model_name=kwargs.get("model_name", LLM_CONFIG.get("openai_model_name", "gpt-3.5-turbo")),
+            temperature=kwargs.get("temperature", 0.7),
+            max_retries=kwargs.get("max_retries", 5)
+        )
+
+    def get_embedding_model(self, **kwargs):
+        return OpenAIEmbeddings(
+            openai_api_key=kwargs.get("openai_api_key", LLM_EMBEDDING_CONFIG.get("openai_api_key")),
+            model=kwargs.get("model", LLM_EMBEDDING_CONFIG.get("openai_model", "text-embedding-ada-002")),
+            max_retries=kwargs.get("max_retries", 5)
+        )
+
+class OllamaLLMProvider(LLMProviderBase):
+    def get_chat_model(self, **kwargs):
+        return ChatOllama(
+            base_url=kwargs.get("base_url", LLM_CONFIG.get("ollama_base_url", "http://localhost:11434")),
+            model=kwargs.get("model", LLM_CONFIG.get("ollama_model_name", "llama3")),
+            temperature=kwargs.get("temperature", 0.7)
+        )
+
+    def get_embedding_model(self, **kwargs):
+        return OllamaEmbeddings(
+            base_url=kwargs.get("base_url", LLM_EMBEDDING_CONFIG.get("ollama_base_url", "http://localhost:11434")),
+            model=kwargs.get("model", LLM_EMBEDDING_CONFIG.get("ollama_model", "llama3")),
+        )
+
 class LLMBase:
     """
-    A base class for language model-based operations.
-
-    Attributes:
-        chat_model (AzureChatOpenAI): The chat model used for language processing.
+    LLMBase 统一调度各类 LLMProvider。
     """
-
-    def __init__(self) -> None:
-        """
-        Initializes the LLMBase class with the AzureChatOpenAI model.
-        """
+    def __init__(self, provider: str) -> None:
         self.message_histories = {}
-        self.chat_model = AzureChatOpenAI(
-            openai_api_key=LLM_CONFIG.get("api_key"),
-            openai_api_version=LLM_CONFIG.get("api_version"),
-            azure_endpoint=LLM_CONFIG.get("azure_endpoint"),
-            deployment_name=LLM_CONFIG.get("deployment_name"),
-            model_name=LLM_CONFIG.get("model_name"),
-            temperature=0.7,
-            max_retries=5
-        )
-        self.react_model = AzureChatOpenAI(
-            openai_api_key=LLM_CONFIG.get("api_key"),
-            openai_api_version=LLM_CONFIG.get("api_version"),
-            azure_endpoint=LLM_CONFIG.get("azure_endpoint"),
-            deployment_name=LLM_CONFIG.get("deployment_name"),
-            model_name=LLM_CONFIG.get("model_name"),
-            temperature=0.7,
-            max_retries=5,
-            stop=['Observation'],
-        )
-        self.tool_model = AzureChatOpenAI(
-            openai_api_key=LLM_CONFIG.get("api_key"),
-            openai_api_version=LLM_CONFIG.get("api_version"),
-            azure_endpoint=LLM_CONFIG.get("azure_endpoint"),
-            deployment_name=LLM_CONFIG.get("deployment_name"),
-            model_name=LLM_CONFIG.get("model_name"),
-            temperature=0,
-            max_retries=5,
-        )
-        self.embbeding_model = AzureOpenAIEmbeddings(
-            openai_api_key=LLM_EMBEDDING_CONFIG.get("api_key"),
-            openai_api_version=LLM_EMBEDDING_CONFIG.get("api_version"),
-            azure_endpoint=LLM_EMBEDDING_CONFIG.get("azure_endpoint"),
-            deployment=LLM_EMBEDDING_CONFIG.get("deployment"),
-            model=LLM_EMBEDDING_CONFIG.get("model"),
-            max_retries=5,
-        )
+        self.provider = provider.lower()
+        self.providers = {
+            "azure": AzureLLMProvider(),
+            "openai": OpenAILLMProvider(),
+            "ollama": OllamaLLMProvider(),
+        }
+        # 兼容原有 azure 默认
+        self.chat_model = self.get_chat_model()
+        self.embbeding_model = self.get_embedding_model()
 
-    def _customize_mode(
-        self,
-        temperature=0,
-        max_retries=5,
-        stop=None,
-        api_key=None,
-        api_version=None,
-        azure_endpoint=None,
-        deployment_name=None,
-        model_name=None,
-    ):
+    def _customize_mode(self, **kwargs):
         """
-        Create a customized AzureChatOpenAI model with adjustable parameters.
-
+        根据 provider 和参数动态创建对应的 chat model。
         Args:
-            temperature (float): Sampling temperature.
-            max_retries (int): Maximum number of retries.
-            stop (list): List of stop sequences.
-            api_key (str): Azure OpenAI API key.
-            api_version (str): Azure OpenAI API version.
-            azure_endpoint (str): Azure endpoint.
-            deployment_name (str): Deployment name.
-            model_name (str): Model name.
-
+            provider (str): 'azure'（默认）、'openai'、'ollama'。
+            其他参数通过 kwargs 传递。
         Returns:
-            AzureChatOpenAI: Configured model instance.
+            对应 provider 的 chat model 实例。
         """
-        model = AzureChatOpenAI(
-            openai_api_key=api_key if api_key is not None else LLM_CONFIG.get("api_key"),
-            openai_api_version=api_version if api_version is not None else LLM_CONFIG.get("api_version"),
-            azure_endpoint=azure_endpoint if azure_endpoint is not None else LLM_CONFIG.get("azure_endpoint"),
-            deployment_name=deployment_name if deployment_name is not None else LLM_CONFIG.get("deployment_name"),
-            model_name=model_name if model_name is not None else LLM_CONFIG.get("model_name"),
-            temperature=temperature,
-            max_retries=max_retries,
-            stop=stop,
-        )
-        return model
+        if self.provider not in self.providers:
+            raise ValueError(f"Unknown provider: {self.provider}")
+        return self.providers[self.provider].get_chat_model(**kwargs)
 
     def get_message_history(self, session_id=None):
         # 根据 session_id 获取对应的对话历史
-        if session_id not in self.message_histories:
+        if session_id not in self.message_histories or session_id == AgentType.REACT:
             if session_id in ["chat"]:
                 self.message_histories[session_id] = LimitedChatMessageHistory()
             else:
@@ -239,3 +250,13 @@ class LLMBase:
             output_parser=output_parser,
             tools=tools,
         )
+
+    def get_chat_model(self, **kwargs):
+        if self.provider not in self.providers:
+            raise ValueError(f"Unknown provider: {self.provider}")
+        return self.providers[self.provider].get_chat_model(**kwargs)
+
+    def get_embedding_model(self, **kwargs):
+        if self.provider not in self.providers:
+            raise ValueError(f"Unknown provider: {self.provider}")
+        return self.providers[self.provider].get_embedding_model(**kwargs)

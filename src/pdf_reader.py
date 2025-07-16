@@ -32,22 +32,20 @@ class PDFReader(LLMBase):
 
     This class provides a full pipeline for PDF document analysis, including image conversion, content extraction, LLM-based summarization, vector DB construction, and interactive Q&A.
     """
-    def __init__(self) -> None:
+    def __init__(self, provider: str = "azure") -> None:
         """
-        初始化 PDFReader 对象，创建所需的图片和 JSON 数据存储目录。
-        Initialize PDFReader, create required directories for images and JSON data.
+        初始化 PDFReader 对象，支持多 LLM provider。
+        provider: 'azure'（默认）、'openai'、'ollama'。
         """
-        super().__init__()
-        self.pdf_image_path = PDF_IMAGE_PATH
-        self.json_data_path = JSON_DATA_PATH
-        self.pdf_path = PDF_PATH
-        self.vector_db_path = VECTOR_DB_PATH
+        super().__init__(provider)
+        self.pdf_image_path = "pdf_image"
+        self.json_data_path = "json_data"
         self.agenda_dict = {}
         self.pdf_raw_data = None
         self.vector_db = None
         self.chunk_count = 30  # 每个分块的大小
 
-        for path in [self.pdf_image_path, self.json_data_path, self.pdf_path, self.vector_db_path]:
+        for path in [self.pdf_image_path, self.json_data_path]:
             if not os.path.exists(path):
                 os.makedirs(path)
                 logger.info(f"Folder {path} created")
@@ -101,7 +99,6 @@ class PDFReader(LLMBase):
             logger.info(f"Saved image: {image_path}")
         logger.info(f"PDF 转图片完成，共 {doc.page_count} 页。")
         doc.close()
-
 
     def read_images_in_directory(self, directory_path: str) -> List[str]:
         """
@@ -157,6 +154,7 @@ class PDFReader(LLMBase):
         image_paths = self.read_images_in_directory(output_folder_path)
         sorted_list = sorted(image_paths, key=lambda x: int(re.search(r'page_(\d+)\.png', x).group(1)))
         image_content_list = []
+        error_pages_list = []
         for path in tqdm(sorted_list, desc="[INFO] 正在处理图片并提取内容"):
             try:
                 with open(path, 'rb') as img_file:
@@ -177,13 +175,23 @@ class PDFReader(LLMBase):
                 logger.info(f"图片{path}内容提取成功")
             except Exception as e:
                 logger.error(f"Get error for {path}: {e}")
+                error_pages_list.append(path)
                 continue
         with open(os.path.join(self.json_data_path, f"{pdf_file_path}.json"), 'w', encoding='utf-8') as file:
             json.dump(image_content_list, file, ensure_ascii=False )
-        logger.info(f"数据已保存到本地JSON文件 {os.path.join(self.json_data_path, f'{pdf_file_path}.json')} 中。")
+        logger.info(f"数据已保存到本地JSON文件 {self.json_data_path}/{pdf_file_path}.json 中。")
+        if len(error_pages_list) > 0:
+            logger.error(f"部分图片提取内容失败{error_pages_list}.\n请用其他手段提取数据并写入 JSON 文件中.")
         return image_content_list
    
-    def call_llm_chain(self, role: str, input_prompt: str, session_id: str, output_parser=StrOutputParser()) -> Any:
+    def call_llm_chain(
+            self,
+            role: str,
+            input_prompt: str,
+            session_id: str,
+            output_parser=StrOutputParser(),
+            system_format_dict: dict={}
+        ) -> Any:
         """
         通用 LLM 调用方法，按不同角色和 session_id 调用链。
         General LLM call method, invokes chain with different roles and session IDs.
@@ -196,9 +204,15 @@ class PDFReader(LLMBase):
             Any: LLM 响应对象。
         """
         logger.info(f"调用LLM: role={role}, session_id={session_id}")
+
+        system_prompt = SYSTEM_PROMPT_CONFIG.get(role)
+
+        if system_format_dict:
+            system_prompt = system_prompt.format(**system_format_dict)
+
         chain = self.build_chain(
             client=self.chat_model,
-            system_prompt=SYSTEM_PROMPT_CONFIG.get(role),
+            system_prompt=system_prompt,
             output_parser=output_parser
         )
         response = chain.invoke(
@@ -325,16 +339,15 @@ class PDFReader(LLMBase):
         vector_db_path = os.path.join(self.vector_db_path, f"{pdf_file_path}_data_index")
         logger.info(f"开始处理PDF主流程: {pdf_file_path}")
         try:
-            with open(os.path.join(self.json_data_path, f"{pdf_file_path}.json"), 'r', encoding='utf-8') as f:
+            with open(f"json_data/{pdf_file_path}.json", 'r', encoding='utf-8') as f:
                 self.pdf_raw_data = json.load(f)
-            logger.info(f"成功读取本地JSON数据: {os.path.join(self.json_data_path, f'{pdf_file_path}.json')}")
+            logger.info(f"成功读取本地JSON数据: json_data/{pdf_file_path}.json")
         except Exception as e:
             logger.warning(f"读取本地JSON失败，将重新提取: {e}")
             self.pdf_raw_data = self.extract_pdf_data(pdf_file_path)
 
         # 初始化存储变量
         common_data_dict = {}
-        agenda_list = []
         vector_db_content_docs = []
 
         if os.path.exists(vector_db_path):
@@ -358,6 +371,7 @@ class PDFReader(LLMBase):
                 else:
                     total_summary[title] = summary
                     self.agenda_dict[title] = pages
+            logger.info(f"当前文章目录结构如下: {self.agenda_dict}")
             # 返回值说明：
             # total_summary: 按章节顺序有序的 dict，key 为章节标题，value 为摘要
             # self.agenda_dict: 按章节顺序有序的 dict，key 为章节标题，value 为页码列表
@@ -366,6 +380,8 @@ class PDFReader(LLMBase):
             # 按 chunk_count 切分 pdf_raw_data，便于大文件分批处理
             chunks = self.split_pdf_raw_data()
             logger.info(f"开始分块处理 PDF，每块大小为 {self.chunk_count}，共 {len(chunks)} 块。")
+
+            agenda_list = []
             for index, chunk in enumerate(chunks):
                 logger.info(f"处理第 {index+1}/{len(chunks)} 块...")
                 # 只在第一个 chunk 提取基本信息
@@ -373,15 +389,10 @@ class PDFReader(LLMBase):
                     logger.info(f"获取PDF基本信息（第一个chunk）...")
                     common_data_dict = self.get_basic_info(chunk)
                     logger.info(f"PDF 基本信息: {common_data_dict}")
-                    logger.info(f"获取PDF目录结构（第 {index+1} 块）...")
-                    agenda = self.get_pdf_agenda(chunk)
-                    logger.info(f"第 {index+1} 块目录结构: {agenda}")
-                    agenda_list.extend(agenda)
-                else:
-                    logger.info(f"获取PDF目录结构（第 {index+1} 块）...")
-                    agenda = self.get_pdf_agenda(chunk)
-                    logger.info(f"第 {index+1} 块目录结构: {agenda}")
-                    agenda_list.extend(agenda)
+                logger.info(f"获取PDF目录结构（第 {index+1} 块）...")
+                agenda = self.get_pdf_agenda(chunk)
+                logger.info(f"第 {index+1} 块目录结构: {agenda}")
+                agenda_list.extend(agenda)
 
             vector_db_content_docs.append(
                 Document(
@@ -444,19 +455,21 @@ class PDFReader(LLMBase):
                 logger.info(f"通过向量数据库检索章节: '{title}' ...")
                 doc_res = self.vector_db.similarity_search_with_score(title, k=1)
                 if doc_res:
-                    title_context = doc_res[0][0].metadata.get("raw_data")
+                    title_context = str(doc_res[0][0].metadata.get("raw_data"))
                     logger.info(f"检索到章节 '{title}' 内容")
                 else:
                     logger.warning(f"章节 '{title}' 未在向量数据库中检索到相关内容。")
                     title_context = ''
+                retrieval_data[title] = title_context
+
             else:
                 logger.info(f"'{title}'已经被检索过，跳过当前章节检索")
                 title_context = last_retrieval_data.get(title)
 
-            if not self.is_content_in_history(title_context, "chat"):
-                context_data.extend(title_context)
+            #if not self.is_content_in_history(title_context, "answer"):
+            #    context_data.append(title_context)
+            context_data.append(title_context)
 
-            retrieval_data[title] = title_context
         logger.info(f"检索数据完成，涉及章节数: {len(title_list)}")
         return context_data, retrieval_data
 
@@ -471,9 +484,12 @@ class PDFReader(LLMBase):
             Any: 回答内容。
         """
         response = self.call_llm_chain(
-            PDFReaderRole.PDF_CHAT.format(agenda_dict=self.agenda_dict),
+            PDFReaderRole.PDF_CHAT,
             input_prompt,
             "chat",
+            system_format_dict={
+                "agenda_dict": self.agenda_dict
+            }
         )
         print("====="*10)
         print(self.agenda_dict)
