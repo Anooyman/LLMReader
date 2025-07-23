@@ -1,21 +1,20 @@
 import logging
-
 import tiktoken
+from typing import Optional
+from pydantic import Field
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_core.chat_history import InMemoryChatMessageHistory
-from pydantic import Field
-
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.chat_models import ChatOllama
 from langchain_community.embeddings import OllamaEmbeddings
 
 from abc import ABC, abstractmethod
 
-from config import (
+from src.common.config import (
     LLM_CONFIG,
     LLM_EMBEDDING_CONFIG,
 )
@@ -25,7 +24,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-from typing import Optional
 
 class LimitedChatMessageHistory(InMemoryChatMessageHistory):
     max_messages: int = Field(default=20)

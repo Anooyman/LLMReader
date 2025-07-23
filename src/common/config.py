@@ -1,3 +1,17 @@
+class MCPToolName:
+  WEB_SEARCH = "web search" 
+
+MCP_CONFIG = {
+  MCPToolName.WEB_SEARCH: {
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "@playwright/mcp@latest"
+      ]
+    }
+  }
+}
+
 class PDFReaderRole:
   IMAGE_EXTRACT = "image_extract"
   PDF_COMMON = "pdf_common"
@@ -7,9 +21,22 @@ class PDFReaderRole:
   PDF_CHAT = "pdf_chat"
 
 
-LLM_CONFIG = {}
+LLM_CONFIG = {
+    "api_key": "ebf7fd9bfd53414f98597208539eae06",
+    "api_version": "2025-01-01-preview",
+    "azure_endpoint": "https://edward-ke-ai-aiservices-638508787.openai.azure.com/",
+    "deployment_name": "crq-gpt-4.1",
+    "model_name": "gpt-4.1"
+}
 
-LLM_EMBEDDING_CONFIG = {}
+LLM_EMBEDDING_CONFIG = {
+    "api_key": "c443d242326749d08ff027583c8ea8c5",
+    "api_version": "2023-09-15-preview",
+    "azure_endpoint": "https://riskinsights-openai-demo.openai.azure.com/",
+    "deployment": "riskinsights-knowledge",
+    "model": "text-embedding-ada-002"
+}
+
 
 SYSTEM_PROMPT_CONFIG = {
 
@@ -243,4 +270,5 @@ PDF_IMAGE_PATH = f"{DATA_ROOT}/pdf_image"
 JSON_DATA_PATH = f"{DATA_ROOT}/json_data"
 PDF_PATH = f"{DATA_ROOT}/pdf"
 VECTOR_DB_PATH = f"{DATA_ROOT}/vector_db"
+OUTPUT_PATH = f"{DATA_ROOT}/output"
 

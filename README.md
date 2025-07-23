@@ -16,6 +16,16 @@ PDFReader 是一个基于大语言模型（LLM）的 PDF 文档分析与智能�
 
 ---
 
+## 更新日志
+
+- 2025-07-23
+  - 新增摘要文件导出功能，支持将简要摘要（brief_summary）和详细摘要（detail_summary）导出至 data/output 文件夹
+  - 支持两种文件格式：Markdown（.md）和 PDF（.pdf），满足不同场景需求
+  - 新增控制参数 save_data_flag，用于开关文件导出功能，默认值为 True（自动导出）
+  - 优化文件生成逻辑：仅当目标文件不存在时才会生成，已存在的文件将自动跳过，减少重复计算和 IO 操作
+
+---
+
 ## 环境与依赖
 
 - Python 3.12+
@@ -32,22 +42,31 @@ pip install -r requirements.txt
 
 ```
 PDFReader/
-├── src/
-│   ├── pdf_reader.py      # 主程序，PDF 处理与问答主流程
-│   ├── llm.py             # LLM 封装与多 provider 支持
-│   ├── config.py          # 配置与路径常量
-│   ├── utility.py         # 工具函数
 ├── data/
+│   ├── json_data/         # 自动生成的内容 json
+│   ├── output/            # 自动生成的文章摘要
 │   ├── pdf/               # 你的 PDF 文件请放在这里(需手动创建)
 │   ├── pdf_image/         # 自动生成的图片
-│   ├── json_data/         # 自动生成的内容 json
-│   ├── vector_db/         # 自动生成的向量数据库
-├── requirements.txt
+│   └── vector_db/         # 自动生成的向量数据库
+├── src/
+│   ├── __init__.py
+│   ├── common/
+│   │   ├── __init__.py
+│   │   ├── config.py      # 配置与路径常量
+│   │   ├── llm.py         # LLM 封装与多 provider 支持
+│   │   ├── mcp_client.py  # mcp clinet 封装
+│   │   └── utility.py     # 工具函数
+│   ├── reader/
+│   │   ├── __init__.py
+│   │   ├── pdf_reader.py  # PDF 的处理与问答主流程
+│   └── main.py
+├── .gitignore
 ├── README.md
-└── ...
+└── requirements.txt
 ```
 
 - **所有缓存和中间数据均自动存储在 `data/` 目录下**，无需手动管理。
+- repo 中 data 目录下仅存放样例的 pdf 和 output
 
 ---
 
@@ -60,9 +79,10 @@ PDFReader/
 2. **运行主程序**
    - 在项目根目录下运行：
    ```bash
-   python src/main.py
+   python main.py
    ```
    - 启动后会自动处理默认 PDF 文件（可在代码中修改），或根据提示输入 PDF 文件名（如 `your_file.pdf`），无需包含路径。
+   - 自动生成简要摘要（brief_summary）和详细摘要（detail_summary）导出至 data/output 文件夹。
 
 3. **交互问答**
    - 首次运行会自动将 PDF 按页转为图片，提取每页内容，并输出章节结构 summary。
@@ -96,15 +116,6 @@ PDFReader/
 - **章节检索**：每次 summary 输出后，建议后续提问时直接引用 summary 中的章节标题，检索更精准。
 - **自定义参数**：如需调整分块大小、缓存路径等，可在 `config.py` 或 `pdf_reader.py` 构造参数中修改。
 - **异常处理**：如遇部分图片内容提取失败，会有详细日志提示，可手动补充 JSON 数据。
-
----
-
-## 代码模块说明
-
-- `src/pdf_reader.py`：主流程，PDF 处理、内容提取、摘要、问答、交互入口
-- `src/llm.py`：LLM 封装，支持多 provider，历史消息管理
-- `src/config.py`：所有路径、API key、模型等配置
-- `src/utility.py`：通用工具函数（如 JSON 解析、章节分组等）
 
 ---
 
