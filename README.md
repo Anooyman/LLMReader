@@ -1,6 +1,6 @@
-# PDFReader
+# LLMReader
 
-PDFReader 是一个基于大语言模型（LLM）的文档分析与智能问答工具，支持 PDF 和网页内容解析，支持多种 LLM provider（Azure OpenAI、OpenAI、Ollama），可自动提取内容、生成摘要、构建向量数据库并支持多轮智能问答。
+LLMReader 是一个基于大语言模型（LLM）的文档分析与智能问答工具，支持 PDF 和网页内容解析，支持多种 LLM provider（Azure OpenAI、OpenAI、Ollama），可自动提取内容、生成摘要、构建向量数据库并支持多轮智能问答。
 
 ---
 
@@ -47,7 +47,7 @@ pip install -r requirements.txt
 ## 目录结构
 
 ```
-PDFReader/
+LLMReader/
 ├── data/
 │   ├── json_data/         # 自动生成的内容JSON文件
 │   ├── output/            # 自动导出的摘要文件（按文档分目录）
