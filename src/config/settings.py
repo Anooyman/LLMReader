@@ -30,21 +30,9 @@ class ReaderRole:
   CHAT = "pdf_chat"
 
 
-LLM_CONFIG = {
-    "api_key": "ebf7fd9bfd53414f98597208539eae06",
-    "api_version": "2025-01-01-preview",
-    "azure_endpoint": "https://edward-ke-ai-aiservices-638508787.openai.azure.com/",
-    "deployment_name": "crq-gpt-4.1",
-    "model_name": "gpt-4.1"
-}
+LLM_CONFIG = {}
 
-LLM_EMBEDDING_CONFIG = {
-    "api_key": "c443d242326749d08ff027583c8ea8c5",
-    "api_version": "2023-09-15-preview",
-    "azure_endpoint": "https://riskinsights-openai-demo.openai.azure.com/",
-    "deployment": "riskinsights-knowledge",
-    "model": "text-embedding-ada-002"
-}
+LLM_EMBEDDING_CONFIG = {}
 
 
 SYSTEM_PROMPT_CONFIG = {

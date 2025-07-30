@@ -101,4 +101,6 @@ poetry.lock
 
 # Ignore all data files
 /data/ 
-data\ 
+*.json
+*.pdf
+*.md
