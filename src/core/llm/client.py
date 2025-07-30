@@ -1,6 +1,6 @@
 import logging
 import tiktoken
-from typing import Optional
+from typing import Any, Dict, List, Optional
 from pydantic import Field
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
@@ -14,9 +14,12 @@ from langchain_community.embeddings import OllamaEmbeddings
 
 from abc import ABC, abstractmethod
 
-from src.common.config import (
+from src.utils.helpers import extract_data_from_LLM_res
+from src.config.settings import (
     LLM_CONFIG,
     LLM_EMBEDDING_CONFIG,
+    SYSTEM_PROMPT_CONFIG,
+    ReaderRole,
 )
 logging.basicConfig(
     level=logging.INFO,  # 可根据需要改为 DEBUG
@@ -28,12 +31,12 @@ logger = logging.getLogger(__name__)
 class LimitedChatMessageHistory(InMemoryChatMessageHistory):
     max_messages: int = Field(default=20)
     max_tokens: int = Field(default=32768)
-    encoding_name: Optional[str] = Field(default="cl100k_base")  # 你可以根据模型换成合适的encoding
+    encoding_name: Optional[str] = Field(default="o200k_base")  # 你可以根据模型换成合适的encoding
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.max_tokens = kwargs.get("max_tokens", 32768)
-        self.encoding_name = kwargs.get("encoding_name", "cl100k_base")
+        self.encoding_name = kwargs.get("encoding_name", "o200k_base")
         # 你可以在这里做额外的初始化
 
     def _count_tokens(self, message):
@@ -257,3 +260,105 @@ class LLMBase:
         if self.provider not in self.providers:
             raise ValueError(f"Unknown provider: {self.provider}")
         return self.providers[self.provider].get_embedding_model(**kwargs)
+
+    def call_llm_chain(
+            self,
+            role: str,
+            input_prompt: str,
+            session_id: str,
+            output_parser=StrOutputParser(),
+            system_format_dict: dict={}
+        ) -> Any:
+        """
+        通用 LLM 调用方法，按不同角色和 session_id 调用链。
+        General LLM call method, invokes chain with different roles and session IDs.
+        Args:
+            role (str): PDFReaderRole 枚举值。
+            input_prompt (str): 输入提示。
+            session_id (str): 会话 ID。
+            output_parser: 输出解析器。
+        Returns:
+            Any: LLM 响应对象。
+        """
+        logger.info(f"调用LLM: role={role}, session_id={session_id}")
+
+        system_prompt = SYSTEM_PROMPT_CONFIG.get(role)
+
+        if system_format_dict:
+            system_prompt = system_prompt.format(**system_format_dict)
+
+        chain = self.build_chain(
+            client=self.chat_model,
+            system_prompt=system_prompt,
+            output_parser=output_parser
+        )
+        response = chain.invoke(
+            {"input_prompt": input_prompt},
+            config={"configurable": {"session_id": session_id}}
+        )
+        logger.info(f"LLM调用完成: role={role}, session_id={session_id}")
+        return response
+
+    def get_basic_info(self, raw_data) -> Dict[str, Any]:
+        """
+        获取 PDF 的基本信息摘要。
+        Get basic summary information of the PDF.
+        Args:
+            pdf_raw_data: PDF 原始数据。
+        Returns:
+            Dict[str, Any]: 基本信息摘要。
+        """
+        input_prompt = f"这里是文章的完整内容: {raw_data}"
+        response = self.call_llm_chain(ReaderRole.COMMON, input_prompt, "common")
+        logger.info("已获取文章基本信息摘要。")
+        return extract_data_from_LLM_res(response)
+
+    def get_agenda(self, raw_data) -> List[Dict[str, Any]]:
+        """
+        获取 PDF 的目录结构或议程。
+        Get the agenda or table of contents of the PDF.
+        Args:
+            pdf_raw_data: PDF 原始数据。
+        Returns:
+            List[Dict[str, Any]]: 目录结构列表。
+        """
+        input_prompt = f"这里是文章的完整内容: {raw_data}"
+        response = self.call_llm_chain(ReaderRole.AGENDA, input_prompt, "agenda")
+        logger.info(f"Directory Structure: {response}")
+        return extract_data_from_LLM_res(response)
+
+    def summary_content(self, title: str, content: Any) -> Any:
+        """
+        针对某一章节内容进行总结。
+        Summarize the content of a specific section.
+        Args:
+            title (str): 章节标题。
+            content (Any): 章节内容。
+        Returns:
+            Any: 总结内容。
+        """
+        input_prompt = f"请总结{title}的内容，上下文如下：{content}"
+        response = self.call_llm_chain(ReaderRole.SUMMARY, input_prompt, "summary")
+        logger.info(f"章节 {title} 总结完成。")
+        return response
+ 
+    def get_answer(self, context_data: Any, query: str, common_data: Any = "") -> Any:
+        """
+        综合所有摘要和基本信息，生成最终详细回答。
+        Generate a detailed answer based on all summaries and basic info.
+        Args:
+            context_data (Any): 上下文数据。
+            query (str): 问题。
+            common_data (Any, optional): 背景信息。
+        Returns:
+            Any: 最终回答。
+        """
+        if common_data:
+            input_prompt = f"请结合背景信息回答客户问题\nBackground info:{common_data}\n{context_data}\nQuestion:{query}"
+        else:
+            input_prompt = f"请结合背景信息回答客户问题\nBackground info:{context_data}\nQuestion:{query}"
+        logger.info("开始生成回答...")
+        response = self.call_llm_chain(ReaderRole.ANSWER, input_prompt, "answer")
+        logger.info("回答生成完毕。")
+        return response
+

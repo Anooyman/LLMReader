@@ -1,11 +1,8 @@
-
-import hashlib
 import fitz  # 导入pymupdf库，它在导入时别名为fitz
 import json
 import os
 import re
 import logging
-import subprocess
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
@@ -29,7 +26,6 @@ def read_images_in_directory(directory_path: str) -> List[str]:
                 image_files.append(image_path)
     logger.info(f"读取到{len(image_files)}张图片 in {directory_path}")
     return image_files
-
 
 def makedir(path):
     if not os.path.exists(path):
@@ -253,14 +249,6 @@ def group_data_by_sections_with_titles(total_sections, raw_data):
     
     return data_result, agenda_result
 
-def url_to_id(url: str) -> str:
-    """
-    根据 url 生成唯一的 hash id（sha256，取前16位更短）。
-    """
-    hash_obj = hashlib.sha256(url.encode('utf-8'))
-    # 取前16位更短，也可用 hash_obj.hexdigest() 得到完整64位
-    return hash_obj.hexdigest()[:16]
-
 def add_data_keep_order(total_dict, add_dict):
     """
     合并 add_dict 到 total_dict，若 key 重复则用 add_dict 的 value 覆盖，
@@ -301,3 +289,23 @@ def is_file_exists(file_path: str) -> bool:
         logger.error(f"检查文件存在性时发生错误: {str(e)}")
         return False
 
+def extract_name_from_url(url):
+    """
+    从URL中提取可能作为name的关键信息
+    Args:
+        url: 待提取信息的URL字符串
+    Returns:
+        提取到的可能作为name的字符串
+    """
+    # 去除URL中的协议部分（如http://、https://）
+    url_without_protocol = url.split('://')[-1]
+    # 去除域名部分（如medium.com、@lucknitelol等）
+    path_parts = url_without_protocol.split('/')[-1:]  # 针对该URL结构，取域名后的路径部分
+    # 提取URL中以连字符连接的关键内容部分
+    if path_parts:
+        name_part = path_parts[-1]
+        # 将连字符替换为空格
+        name = name_part.replace('-', ' ')
+        return name
+    else:
+        return "无法从URL中提取有效信息"
