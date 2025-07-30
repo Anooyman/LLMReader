@@ -100,4 +100,5 @@ poetry.lock
 .vscode/
 
 # Ignore all data files
-data/ 
+/data/ 
+data\ 
