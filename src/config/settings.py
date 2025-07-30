@@ -3,32 +3,53 @@ class MCPToolName:
 
 MCP_CONFIG = {
   MCPToolName.WEB_SEARCH: {
-    "playwright": {
-      "command": "npx",
+    "fetch": {
+      "command": "python",
       "args": [
-        "@playwright/mcp@latest"
+        "-m",
+        "mcp_server_fetch"
       ]
-    }
-  }
+    },
+    #"playwright": {
+    #    "type": "stdio",
+    #    "command": "npx",
+    #    "args": [
+    #        "@playwright/mcp@latest"
+    #    ]
+    #}
+  },
+
 }
 
-class PDFReaderRole:
+class ReaderRole:
   IMAGE_EXTRACT = "image_extract"
-  PDF_COMMON = "pdf_common"
-  PDF_AGENDA = "pdf_agenda"
-  PDF_SUMMARY = "pdf_summary"
-  PDF_ANSWER = "pdf_answer"
-  PDF_CHAT = "pdf_chat"
+  COMMON = "pdf_common"
+  AGENDA = "pdf_agenda"
+  SUMMARY = "pdf_summary"
+  ANSWER = "pdf_answer"
+  CHAT = "pdf_chat"
 
 
-LLM_CONFIG = {}
+LLM_CONFIG = {
+    "api_key": "ebf7fd9bfd53414f98597208539eae06",
+    "api_version": "2025-01-01-preview",
+    "azure_endpoint": "https://edward-ke-ai-aiservices-638508787.openai.azure.com/",
+    "deployment_name": "crq-gpt-4.1",
+    "model_name": "gpt-4.1"
+}
 
-LLM_EMBEDDING_CONFIG = {}
+LLM_EMBEDDING_CONFIG = {
+    "api_key": "c443d242326749d08ff027583c8ea8c5",
+    "api_version": "2023-09-15-preview",
+    "azure_endpoint": "https://riskinsights-openai-demo.openai.azure.com/",
+    "deployment": "riskinsights-knowledge",
+    "model": "text-embedding-ada-002"
+}
 
 
 SYSTEM_PROMPT_CONFIG = {
 
-  PDFReaderRole.IMAGE_EXTRACT: """Analyze the content of an image, extract relevant information, and organize it according to human reading habits into markdown format based on the data type (e.g., text, table, image, code, formulas, flowcharts).
+  ReaderRole.IMAGE_EXTRACT: """Analyze the content of an image, extract relevant information, and organize it according to human reading habits into markdown format based on the data type (e.g., text, table, image, code, formulas, flowcharts).
 
 # Key Instructions
 
@@ -128,7 +149,7 @@ E = mc^2
 
 """,
 
-  PDFReaderRole.PDF_COMMON: """提取文章的基本信息（如作者、单位、发布日期等）
+  ReaderRole.COMMON: """提取文章的基本信息（如作者、单位、发布日期等）
 
 # 任务说明
 
@@ -143,7 +164,7 @@ E = mc^2
 - 若某些基本信息缺失，请在 JSON 中用 `null`标明，例如 `"author": null`。
 """,
 
-  PDFReaderRole.PDF_AGENDA: """解析文章内容，提取其目录结构，并返回一个标准的 JSON 风格列表，其中包含章节标题及对应的起始页码。
+  ReaderRole.AGENDA: """解析文章内容，提取其目录结构，并返回一个标准的 JSON 风格列表，其中包含章节标题及对应的起始页码。
 
 # 详细任务说明
 1. **内容扫描**：
@@ -175,7 +196,7 @@ E = mc^2
 - **一致性**：输出结构和格式必须始终符合上述 JSON 示范样式。
 """,
 
-  PDFReaderRole.PDF_SUMMARY: """对输入的文本内容进行总结和信息提取，确保尽可能保留关键的原始信息和结构。
+  ReaderRole.SUMMARY: """对输入的文本内容进行总结和信息提取，确保尽可能保留关键的原始信息和结构。
 
 **关键要求**：
 1. 确保总结清晰且忠实于原文内容，无删减主要信息。
@@ -205,7 +226,7 @@ E = mc^2
 - [EXAMPLE PLACEHOLDER STRUCTURE ,...]
 """,
 
-  PDFReaderRole.PDF_ANSWER: """根据提供的背景信息（Background info），尽可能精准地回答客户问题。如果信息不足，则明确告知客户无法提供更多细节，而不要编造或假设答案。
+  ReaderRole.ANSWER: """根据提供的背景信息（Background info），尽可能精准地回答客户问题。如果信息不足，则明确告知客户无法提供更多细节，而不要编造或假设答案。
 
 # 任务步骤
 
@@ -225,7 +246,7 @@ E = mc^2
 - **避免偏离背景**: 严格以Background info为界限，避免使用外部推测。
 """,
 
-   PDFReaderRole.PDF_CHAT: """分析用户输入及历史对话内容，根据文章章节目录确定需要检索的章节，并返回章节的标题。
+  ReaderRole.CHAT: """分析用户输入及历史对话内容，根据文章章节目录确定需要检索的章节，并返回章节的标题。
 结合用户输入、历史对话内容和文章章节目录 `{agenda_dict}`，匹配最相关的章节并输出章节名字。
 
 # Steps
@@ -248,8 +269,6 @@ E = mc^2
 - 对于不需要检索的问题，直接返回答案。
 """,
 
-
-
 }
 
 # 数据根目录
@@ -260,3 +279,4 @@ PDF_PATH = f"{DATA_ROOT}/pdf"
 VECTOR_DB_PATH = f"{DATA_ROOT}/vector_db"
 OUTPUT_PATH = f"{DATA_ROOT}/output"
 
+WEB_MAX_TOKEN_COUNT = 3000
