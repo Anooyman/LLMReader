@@ -34,25 +34,6 @@ class MCPClient(LLMBase):
         await self.connect_to_server()
         await self._process_tool()
 
-    async def display_tools(self):
-        """Display available tools with human-readable names"""
-        tools_response = await self.session.list_tools()
-
-        for tool in tools_response.tools:
-            # get_display_name() returns the title if available, otherwise the name
-            display_name = get_display_name(tool)
-            print(f"Tool: {display_name}")
-            if tool.description:
-                print(f"   {tool.description}")
-
-    async def display_resources(self):
-        """Display available resources with human-readable names"""
-        resources_response = await self.session.list_resources()
-
-        for resource in resources_response.resources:
-            display_name = get_display_name(resource)
-            print(f"Resource: {display_name} ({resource.uri})")
-
     async def cleanup(self):
         try:
             await self.exit_stack.aclose()
@@ -110,11 +91,26 @@ class MCPClient(LLMBase):
             return 
 
     async def _process_tool(self):
+        """
+        加载并处理MCP服务中的工具列表，构建工具描述和映射关系。
+    
+        功能:
+            1. 从每个会话中获取工具列表
+            2. 生成工具描述字符串（包含名称、用途、参数格式）
+            3. 构建工具名称到会话的映射，用于后续调用
+    
+        属性更新:
+            self.tools_name (list): 所有工具名称列表
+            self.tool_descs (list): 所有工具的描述字符串
+            self.tool_name_to_session (dict): {工具名称: (会话名, 会话实例)}
+        """
         self.tools_name = []
         self.tool_descs = []
         self.tool_name_to_session = {}
         for name, session in self.session_dict.items():
             response = await session.list_tools()
+            logger.info(f"从会话 {name} 加载到 {len(response.tools)} 个工具")
+
             TOOL_DESC = "{name_for_model}: What is the {name_for_model} API useful for? {description_for_model}. Parameters: {parameters} Format the arguments as a JSON object."
             for tool in response.tools:
                 self.tool_name_to_session[tool.name] = (name, session)
@@ -126,6 +122,7 @@ class MCPClient(LLMBase):
                     parameters = tool.inputSchema
                     )
                 )
+
 
 if __name__ == "__main__":
     ...

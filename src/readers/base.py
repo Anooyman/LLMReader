@@ -1,13 +1,11 @@
 import json
 import logging
-from typing import List, Dict, Any
 import markdown
 from weasyprint import HTML
 
 from langchain.docstore.document import Document
 from src.core.llm.client import LLMBase
 from src.config.settings import (
-    ReaderRole,
     JSON_DATA_PATH,
     OUTPUT_PATH,
     VECTOR_DB_PATH
@@ -17,18 +15,32 @@ from src.utils.helpers import *
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
+MAX_CHAPTER_LEN = 10
+"""
+基础阅读器类，提供PDF/网页等文档处理的通用功能，包括：
+- 数据保存与加载
+- 摘要生成（简要/详细）
+- 向量数据库交互基础逻辑
 
+该类继承自LLMBase，为子类（如PDFReader、WebReader）提供通用方法。
+"""
 class ReaderBase(LLMBase):
     """
-    PDFReader 类用于处理 PDF 文件，包括：
-    1. PDF 转图片
-    2. 图片内容提取
-    3. 调用 LLM 进行内容分析与总结
-    4. 构建和使用向量数据库
-    5. 支持交互式问答
-
-    This class provides a full pipeline for PDF document analysis, including image conversion, content extraction, LLM-based summarization, vector DB construction, and interactive Q&A.
+    基础阅读器类，封装文档处理的核心流程与通用工具方法。
     """
+    def __init__(self, provider: str = "azure") -> None:
+        """
+        初始化基础阅读器，配置LLM提供商及数据存储路径。
+        
+        参数:
+            provider (str): LLM服务提供商，支持'azure'（默认）、'openai'、'ollama'。
+        
+        说明:
+            数据存储路径依赖全局变量：
+            - JSON_DATA_PATH: 原始数据JSON存储路径
+            - OUTPUT_PATH: 生成文件（摘要等）输出路径
+            - VECTOR_DB_PATH: 向量数据库存储路径
+        """
     def __init__(self, provider: str = "azure") -> None:
         """
         初始化 PDFReader 对象，支持多 LLM provider。
@@ -106,7 +118,7 @@ class ReaderBase(LLMBase):
             return
 
         # 构造用于生成简要摘要的查询指令
-        query = "请按照文章本身的叙事结构，整理这篇文章的主要内容，每个章节都需要有一定的简单介绍。如果背景知识中有一些文章的基本信息也需要一并总结。仅需要返回相关内容，多余的话无需返回。"
+        query = "请按照文章本身的叙事结构，整理这篇文章的主要内容，每个章节都需要有一定的简单介绍。如果背景知识中有一些文章的基本信息也需要一并总结。仅需要返回相关内容，多余的话无需返回。返回中文，markdown格式。"
 
         # 记录开始生成简要摘要的日志
         logger.info(f"开始生成文章简要摘要...")
@@ -144,7 +156,7 @@ class ReaderBase(LLMBase):
         total_answer = ""
 
         # 构造用于生成详细摘要的查询模板
-        query = "按照人类的习惯理解并且总结 {title} 的内容。最后以 blog 的格式返回，需要注意换行。仅需要返回相关内容，多余的话无需返回。不需要对章节进行单独总结。"
+        query = "按照人类的习惯理解并且总结 {title} 的内容。最后以 blog 的格式返回，需要注意标题(如果标题中有数字则需要写出到结果中)，换行，加粗关键信息。仅需要返回相关内容的总结信息，多余的话无需返回。不需要对章节进行单独总结。返回中文"
 
         # 记录开始生成详细摘要的日志
         logger.info(f"开始生成详细摘要，共包含 {len(raw_data_dict)} 个部分...")
@@ -166,7 +178,7 @@ class ReaderBase(LLMBase):
             answer = self.get_answer(context_data, query.format(title=title))
 
             # 将当前部分的摘要添加到总摘要中
-            total_answer += "\n\n" + answer
+            total_answer += "\n\n --- \n\n " + answer
 
         # 保存合并后的详细摘要
         self.save_data_to_file(total_answer, "detail_summary", file_type_list)
@@ -219,7 +231,15 @@ class ReaderBase(LLMBase):
                 # 所有格式文件都已存在，无需生成
                 logger.info(f"摘要类型 {summary_type} 的所有文件格式均已存在，无需生成")
 
-    def get_data_from_json_dict(self, chunks: list, json_data_dict: dict):
+    def get_data_from_json_dict(self, chunks: list, json_data_dict: dict) -> None:
+        """
+        从分块数据中提取文档信息（基本信息、目录结构）并构建向量数据库内容。
+        
+        参数:
+            chunks (list): 分块后的原始数据列表
+            json_data_dict (dict): 原始JSON数据字典
+        
+        """
         vector_db_content_docs = []
         agenda_list = []
         for index, chunk in enumerate(chunks):
@@ -248,6 +268,13 @@ class ReaderBase(LLMBase):
         # 合并所有 chunk 的目录结构后，按章节分组
         logger.info(f"合并所有 chunk 的目录结构，准备分组...")
         agenda_data_list, self.agenda_dict = group_data_by_sections_with_titles(agenda_list, json_data_dict)
+
+        # 检查每个章节的长度，如果长度大于 MAX_CHAPTER_LEN，则需要重新获取目录结构
+        agenda_list = self.check_len_of_each_chapter(agenda_list, agenda_data_list)
+        logger.info(f"重新分组后的章节数: {len(agenda_list)}")
+
+        # 重新分组
+        agenda_data_list, self.agenda_dict = group_data_by_sections_with_titles(agenda_list, json_data_dict)
         logger.info(f"章节分组完成，章节数: {len(agenda_data_list)}")
         logger.info(f"最终章节信息如下: {self.agenda_dict}")
         logger.info(f"开始分章节总结...")
@@ -257,6 +284,7 @@ class ReaderBase(LLMBase):
             page = agenda_data.get("pages")
             logger.info(f"正在总结章节: {title}")
             summary = self.summary_content(title, list(data.values()))
+            refactor_content = self.refactor_content(title, list(data.values()))
             self.total_summary[title] = summary
             vector_db_content_docs.append(
                 Document(
@@ -265,6 +293,7 @@ class ReaderBase(LLMBase):
                         "pages": page,
                         "raw_data": data,
                         "summary": summary,
+                        "refactor": refactor_content,
                     }
                 )
             )
@@ -272,6 +301,29 @@ class ReaderBase(LLMBase):
         logger.info(f"所有章节摘要已完成，正在构建向量数据库...")
         self.vector_db = self.vector_db_obj.build_vector_db(vector_db_content_docs)
         logger.info(f"向量数据库构建完成。")
+
+    def check_len_of_each_chapter(self, agenda_list: list, agenda_data_list: list):
+        """
+        检查每个章节的长度，如果长度大于 MAX_CHAPTER_LEN，则需要重新获取目录结构
+        """
+        for agenda_data in agenda_data_list:
+            title = agenda_data.get("title")
+            data = agenda_data.get("data")
+            page = agenda_data.get("pages")
+            if len(page) > MAX_CHAPTER_LEN:
+                logger.info(f"章节: {title} 长度大于 {MAX_CHAPTER_LEN}，需要重新获取目录结构")
+                count = 0
+                while count < 5:
+                    try:
+                        agenda = self.get_sub_agenda(data)
+                        if len(agenda) > 1:
+                            agenda_list.extend(agenda)
+                            break
+                    except:
+                        logger.info(f"子章节提取内容错误，正在重试。当前重试次数{count}")
+                    count += 1
+                logger.info(f"重新获取目录结构完成，目录结构: {agenda}")
+        return agenda_list
 
     def get_data_from_vector_db(self):
         self.vector_db = self.vector_db_obj.load_vector_db()
@@ -313,30 +365,43 @@ class ReaderBase(LLMBase):
         """
         title_list = response.get("title", [])
         context_data = []
+        total_page_content = []
         for title in title_list:
-            raw_data_dict = {}
             if title not in self.retrieval_data_dict.keys():
                 logger.info(f"通过向量数据库检索章节: '{title}' ...")
                 doc_res = self.vector_db.similarity_search_with_score(title, k=1)
                 if doc_res:
-                    raw_data_dict = doc_res[0][0].metadata.get("raw_data", {})
-                    self.retrieval_data_dict[title] = raw_data_dict
+                    refactor_data = doc_res[0][0].metadata.get("refactor", "")
+                    page_content = list(doc_res[0][0].metadata.get("raw_data", {}).keys())
+                    self.retrieval_data_dict[title] = {
+                        "data": refactor_data, 
+                        "page": page_content
+                    }
                     logger.info(f"检索到章节 '{title}' 内容")
                 else:
                     logger.warning(f"章节 '{title}' 未在向量数据库中检索到相关内容。")
-                    raw_data_dict = {}
+                    refactor_data = ""
 
             else:
                 logger.info(f"'{title}'已经被检索过，跳过当前章节检索")
-                raw_data_dict = self.retrieval_data_dict.get(title)
+                refactor_data = self.retrieval_data_dict.get(title, {}).get("data", "")
+                page_content = self.retrieval_data_dict.get(title, {}).get("page", "")
+            # 按 page 的大小（页码顺序）拼接数据，确保顺序正确
+            # 假设 page 是可以转换为整数的页码
+            #sorted_items = sorted(raw_data_dict.items(), key=lambda x: int(x[0]) if str(x[0]).isdigit() else x[0])
+            #for page, raw_data in sorted_items:
+            #    if raw_data not in context_data:
+            #        context_data.append(raw_data)
+            #    else:
+            #        logger.info(f"内容已经被加入到 context 信息中!")
 
-            #if not self.is_content_in_history(title_context, "answer"):
-            #    context_data.append(title_context)
-            for page, raw_data in raw_data_dict.items():
-                if raw_data not in context_data:
-                    context_data.append(raw_data)
+            if refactor_data not in context_data:
+                context_data.append(refactor_data)
+            else:
+                logger.info(f"内容已经被加入到 context 信息中!")
+            total_page_content.extend(page_content)
 
         logger.info(f"检索数据完成，涉及章节数: {len(title_list)}")
-        logger.info(f"检索数据完成，涉及页数: {len(context_data)}")
+        logger.info(f"检索数据完成，涉及页数: {total_page_content}")
         return context_data
 

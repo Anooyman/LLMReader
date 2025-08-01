@@ -29,6 +29,19 @@ logger = logging.getLogger(__name__)
 
 
 class LimitedChatMessageHistory(InMemoryChatMessageHistory):
+    """
+    带有限制功能的聊天消息历史记录管理类
+
+    扩展InMemoryChatMessageHistory，增加以下功能：
+    - 消息数量限制：通过max_messages参数控制最大消息条数
+    - Token数量限制：通过max_tokens参数控制总Token数不超过模型上下文窗口
+    - 自动清理：当消息数量或Token数超出限制时，自动移除最早的消息
+
+    Attributes:
+        max_messages (int): 最大消息数量限制，默认20
+        max_tokens (int): 最大Token数量限制，默认32768
+        encoding_name (str): Token编码名称，默认使用o200k_base
+    """
     max_messages: int = Field(default=20)
     max_tokens: int = Field(default=32768)
     encoding_name: Optional[str] = Field(default="o200k_base")  # 你可以根据模型换成合适的encoding
@@ -40,6 +53,18 @@ class LimitedChatMessageHistory(InMemoryChatMessageHistory):
         # 你可以在这里做额外的初始化
 
     def _count_tokens(self, message):
+        """
+        计算单条消息的Token数量
+
+        Args:
+            message: 聊天消息对象，需包含content属性
+
+        Returns:
+            int: 消息内容的Token数量
+
+        Note:
+            优先使用tiktoken进行精确计算，如未安装则使用字符数/4进行估算
+        """
         # 这里用 tiktoken 统计 token 数
         try:
             encoding = tiktoken.get_encoding(self.encoding_name)
@@ -59,10 +84,13 @@ class LimitedChatMessageHistory(InMemoryChatMessageHistory):
 
     def add_message(self, message):
         super().add_message(message)
-        # 限制消息条数
+        
+        # 1. 限制消息条数 - 保留最新的max_messages条消息
         if len(self.messages) > self.max_messages:
             self.messages = self.messages[-self.max_messages:]
-        # 限制 token 总数
+            logger.debug(f"消息数量超出限制，已截断至{self.max_messages}条")
+        
+        # 2. 限制Token总数 - 循环移除最早消息直到Token数达标
         while self._total_tokens() > self.max_tokens and len(self.messages) > 1:
             self.messages.pop(0)
 
@@ -146,7 +174,7 @@ class LLMBase:
         }
         # 兼容原有 azure 默认
         self.chat_model = self.get_chat_model()
-        self.embbeding_model = self.get_embedding_model()
+        self.embedding_model = self.get_embedding_model()
 
     def _customize_mode(self, **kwargs):
         """
@@ -285,7 +313,10 @@ class LLMBase:
         system_prompt = SYSTEM_PROMPT_CONFIG.get(role)
 
         if system_format_dict:
-            system_prompt = system_prompt.format(**system_format_dict)
+            try:
+                system_prompt = system_prompt.format(**system_format_dict)
+            except KeyError as e:
+                logger.error(f"系统提示词格式化失败，缺少参数: {e}")
 
         chain = self.build_chain(
             client=self.chat_model,
@@ -327,6 +358,20 @@ class LLMBase:
         logger.info(f"Directory Structure: {response}")
         return extract_data_from_LLM_res(response)
 
+    def get_sub_agenda(self, raw_data) -> List[Dict[str, Any]]:
+        """
+        获取 PDF 的目录结构或议程。
+        Get the sub agenda or table of contents of the PDF.
+        Args:
+            pdf_raw_data: PDF 原始数据。
+        Returns:
+            List[Dict[str, Any]]: 目录结构列表。
+        """
+        input_prompt = f"这里是文章的完整内容: {raw_data}"
+        response = self.call_llm_chain(ReaderRole.SUB_AGENDA, input_prompt, "agenda")
+        logger.info(f"Sub Directory Structure: {response}")
+        return extract_data_from_LLM_res(response)
+
     def summary_content(self, title: str, content: Any) -> Any:
         """
         针对某一章节内容进行总结。
@@ -341,7 +386,23 @@ class LLMBase:
         response = self.call_llm_chain(ReaderRole.SUMMARY, input_prompt, "summary")
         logger.info(f"章节 {title} 总结完成。")
         return response
+
+    def refactor_content(self, title: str, content: Any) -> Any:
+        """
+        针对某一章节内容进行总结。
+        Summarize the content of a specific section.
+        Args:
+            title (str): 章节标题。
+            content (Any): 章节内容。
+        Returns:
+            Any: 总结内容。
+        """
+        input_prompt = f"请重新整理Content中的内容。\n\n Content：{content}"
+        response = self.call_llm_chain(ReaderRole.REFACTOR, input_prompt, "refactor")
+        logger.info(f"章节 {title} 内容重构完成。")
+        return response
  
+
     def get_answer(self, context_data: Any, query: str, common_data: Any = "") -> Any:
         """
         综合所有摘要和基本信息，生成最终详细回答。
@@ -354,9 +415,9 @@ class LLMBase:
             Any: 最终回答。
         """
         if common_data:
-            input_prompt = f"请结合背景信息回答客户问题\nBackground info:{common_data}\n{context_data}\nQuestion:{query}"
+            input_prompt = f"请结合检索回来的上下文信息(Context data)回答客户问题\n\n ===== \n\nQuestion:{query}\n\n ===== \n\n Context data:{common_data}\n\n ===== \n\n{context_data}"
         else:
-            input_prompt = f"请结合背景信息回答客户问题\nBackground info:{context_data}\nQuestion:{query}"
+            input_prompt = f"请结合检索回来的上下文信息(Context data)回答客户问题\n\n ===== \n\nQuestion:{query}\n\n ===== \n\n Context data:{context_data}"
         logger.info("开始生成回答...")
         response = self.call_llm_chain(ReaderRole.ANSWER, input_prompt, "answer")
         logger.info("回答生成完毕。")

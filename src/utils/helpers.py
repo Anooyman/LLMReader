@@ -1,6 +1,7 @@
 import fitz  # 导入pymupdf库，它在导入时别名为fitz
 import json
 import os
+import unicodedata
 import re
 import logging
 from typing import List, Optional
@@ -150,13 +151,32 @@ def parse_latest_plugin_call(text: str):
   
     return plugin_name, plugin_args, final_answer  
 
-def is_pdf(file_path):
-    return file_path.lower().endswith('.pdf')
+
+def full_to_half(text):
+    """将全角字符转换为半角"""
+    normalized = []
+    for char in text:
+        # 全角转半角
+        if unicodedata.east_asian_width(char) == 'F':
+            normalized_char = unicodedata.normalize('NFKC', char)
+            normalized.append(normalized_char)
+        else:
+            normalized.append(char)
+    return ''.join(normalized)
+
+def normalize_chapter(name):
+    # 1. 全角转半角
+    name = full_to_half(name)
+    # 2. 移除所有标点和空白
+    name = re.sub(r'[^\w\u4e00-\u9fa5]', '', name)
+    # 3. 转为小写（如果有英文）
+    return name.lower()
 
 def deduplicate_by_title(data):
     seen = set()
     result = []
     for item in data:
+        #title = normalize_chapter(item.get('title'))
         title = item.get('title')
         if title not in seen:
             seen.add(title)

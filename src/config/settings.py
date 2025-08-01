@@ -1,3 +1,7 @@
+import os
+from dotenv import load_dotenv
+load_dotenv()
+
 class MCPToolName:
   WEB_SEARCH = "web search" 
 
@@ -25,15 +29,28 @@ class ReaderRole:
   IMAGE_EXTRACT = "image_extract"
   COMMON = "pdf_common"
   AGENDA = "pdf_agenda"
+  SUB_AGENDA = "pdf_sub_agenda"
   SUMMARY = "pdf_summary"
   ANSWER = "pdf_answer"
   CHAT = "pdf_chat"
+  REFACTOR = "refactor"
 
 
-LLM_CONFIG = {}
+LLM_CONFIG = {
+    "api_key": os.getenv("CHAT_API_KEY"),
+    "api_version": os.getenv("CHAT_API_VERSION"),
+    "azure_endpoint": os.getenv("CHAT_AZURE_ENDPOINT"),
+    "deployment_name": os.getenv("CHAT_DEPLOYMENT_NAME"),
+    "model_name": os.getenv("CHAT_MODEL_NAME"),
+}
 
-LLM_EMBEDDING_CONFIG = {}
-
+LLM_EMBEDDING_CONFIG = {
+    "api_key": os.getenv("EMBEDDING_API_KEY"),
+    "api_version": os.getenv("EMBEDDING_API_VERSION"),
+    "azure_endpoint": os.getenv("EMBEDDING_AZURE_ENDPOINT"),
+    "deployment": os.getenv("EMBEDDING_DEPLOYMENT"),
+    "model": os.getenv("EMBEDDING_MODEL"),
+}
 
 SYSTEM_PROMPT_CONFIG = {
 
@@ -99,6 +116,7 @@ The extracted content should be formatted as follows:
 - All outputs should align with human reading habits and intentional sequences.
 - For complex tables, images, or flowcharts, aim for clarity and simplicity when interpreting the data.
 - Use only markdown syntax for formatting (e.g., bold/italic for emphasis, headers for sections, lists for organization). Do not mix content with unrelated context.
+- Do not return a heading for a section whose content does not exist in the current image.
 
 # Example  
 
@@ -161,7 +179,38 @@ E = mc^2
    - 不要添加、总结或修改任何章节标题，保持与原文一致。
 
 2. **层级与范围**：
-   - 仅收录最上层的章节结构，忽略次级目录。
+   - 仅收录一级的章节结构。
+   - 如果文章没有显示划分子目录但章节标题清晰，应按其显示逻辑提取。
+
+3. **页码准确性**：
+   - 提取每个章节标题的起始页码，确保与文章中标注的页码保持一致性。
+
+4. **单层结构兼容**：
+   - 如果文章无明显章节分隔，则将文章整体作为一个单条记录，标题设为全文内容的标题，起始页码为文章第一页。
+
+# 输出格式
+
+以 JSON 列表的方式返回，其中每个章节是一个对象，包含以下 key：
+- `title`：章节标题。
+- `page`：章节的起始页码。
+
+# 输出规则
+- 确保章节顺序与文章编排一致，无遗漏或重新组织。
+- 无需额外标注文章标题、作者等非目录信息。
+
+# 注意事项
+- **一致性**：输出结构和格式必须始终符合上述 JSON 示范样式。
+""",
+
+  ReaderRole.SUB_AGENDA: """解析文章内容，提取其目录结构，并返回一个标准的 JSON 风格列表，其中包含章节标题及对应的起始页码。
+
+# 详细任务说明
+1. **内容扫描**：
+   - 扫描全文，识别章节标题。
+   - 提取文章中的目录标题。
+   - 不要添加、总结或修改任何章节标题，保持与原文一致。
+
+2. **层级与范围**：
    - 如果文章没有显示划分子目录但章节标题清晰，应按其显示逻辑提取。
 
 3. **页码准确性**：
@@ -214,13 +263,13 @@ E = mc^2
 - [EXAMPLE PLACEHOLDER STRUCTURE ,...]
 """,
 
-  ReaderRole.ANSWER: """根据提供的背景信息（Background info），尽可能精准地回答客户问题。如果信息不足，则明确告知客户无法提供更多细节，而不要编造或假设答案。
+  ReaderRole.ANSWER: """根据提供的上下文信息（Context data），尽可能精准地回答客户问题。如果信息不足，则明确告知客户无法提供更多细节，而不要编造或假设答案。
 
 # 任务步骤
 
-1. **阅读背景信息**: 提取客户提供的 Background info 中的关键内容，理解其核心信息与上下文。
+1. **阅读背景信息**: 提取客户提供的 Context data 中的内容，理解其核心信息与上下文的关系。
 2. **分析客户问题**: 明确客户提出的问题需求，确保对其意图的准确理解。
-3. **匹配信息**: 检查 Background info 是否包含与问题相关的内容。
+3. **匹配信息**: 检查 Context data 是否包含与问题相关的内容。
 4. **回答规则**:
    - 如果背景信息中包含明确答案或相关内容，直接提供答案。
    - 如果背景信息中不包含足够的信息，提示客户背景信息不足，并避免编造。
@@ -231,11 +280,14 @@ E = mc^2
 - **绝不编造答案**: 所有回答必须完全基于背景信息，如果背景信息不足，应明确表明。
 - **礼貌表达**: 即使不能回答问题，应保持礼貌和客户至上的态度。
 - **简洁清晰**: 回答用词直接，避免含糊其词或冗长叙述。
-- **避免偏离背景**: 严格以Background info为界限，避免使用外部推测。
+- **避免偏离背景**: 严格以 Context data 为界限，避免使用外部推测。
 """,
 
   ReaderRole.CHAT: """分析用户输入及历史对话内容，根据文章章节目录确定需要检索的章节，并返回章节的标题。
-结合用户输入、历史对话内容和文章章节目录 `{agenda_dict}`，匹配最相关的章节并输出章节名字。
+结合用户输入、历史对话内容和文章章节目录，匹配最相关的章节并输出章节名字。
+
+# 文章章节目录
+{agenda_dict}
 
 # Steps
 
@@ -250,12 +302,34 @@ E = mc^2
 
 4. **生成 JSON 结果**  
    - 如果存在匹配的章节，返回格式化的 JSON 对象。以 title 作为 key，value 是需要检索的章节名的 list。
-   - 如果无需检索特定章节，直接返回答案/信息。例如在客户提问文章的章节目录时，并不需要检索向量数据库，因为 system prompt 中包含了相关信息。这种情况下直接返回结果就可以了
+   - 如果未找到匹配的章节，则返回上一轮的结果。
 
 # Notes
 - 匹配的章节标题必须严格使用原始命名，不允许直接推断或生成非标准标题。
-- 对于不需要检索的问题，直接返回答案。
+- 如果客户提问的内容与文章章节目录中某个章节相关，则需要进行检索，如果提问和任意一个章节都无关则判断为不需要检索。
+- 不要和客户直接对话。
 """,
+
+  ReaderRole.REFACTOR: """将 context 中的内容按照已有的分类进行整理，整合成一份信息后返回。
+
+# Steps
+
+1. **提取信息**: 从 context 中提取所有具有统一格式的信息。
+2. **分类整理**: 按照信息中标识的分类对内容进行归类整理。
+3. **保持原有格式**: 整理过程中确保不修改或添加原有内容，保持格式一致。
+4. **合并输出**: 将整理好的各类信息依次组合，输出成一份完整内容。
+
+# Output Format
+
+- 按分类顺序整理的完整内容。
+- 信息原格式保持一致，无额外修改或添加。
+
+# Notes
+
+- 如果分类信息中包含空格或标点符号，应严格按照原有形式进行保留。
+- 当 context 中存在新分类，直接添加至整理后的输出中。
+- 如 context 格式不一致，则忽略该部分内容（不做整理）。
+"""
 
 }
 
