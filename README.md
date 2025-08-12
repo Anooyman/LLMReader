@@ -12,7 +12,7 @@ LLMReader 是一个基于大语言模型（LLM）的文档分析与智能问答�
 - **自动摘要**：自动分析并输出基于章节的 summary
 - **向量数据库**：构建向量数据库，支持高效内容检索
 - **智能问答**：支持基于内容的智能问答，推荐带章节名提问以提升检索效果
-- **多轮对话**：支持多轮对话，自动缓存和复用历史检索内容
+- **多轮对话**：支持多轮对话，自动缓存和复用历史检索内容，历史对话上下文自动参与智能问答
 - **多 provider 支持**：支持多种 LLM provider（Azure OpenAI、OpenAI、Ollama）
 - **数据导出**：自动生成简要摘要（brief_summary）和详细摘要（detail_summary）并导出至 data/output 文件夹
 
@@ -24,7 +24,8 @@ LLMReader 是一个基于大语言模型（LLM）的文档分析与智能问答�
   - 新增 Web Reader 功能，支持通过 URL 解析网页内容
   - Web Reader 支持 PDF Reader 的所有功能，包括内容提取、摘要生成和智能问答
   - 通过 MCP 服务获取网页信息，并根据内容长度自动切分
-  - 已知问题: 当 URL 内容特别长时，信息拉取可能会错乱，可以重跑获取正确信息; 部分网站无法抓取
+  - 已知问题: 当 URL 内容特别长时，信息拉取可能会错乱，可以重跑获取正确信息; 部分网站无法抓取。
+  部分依赖包如未安装会导致部分功能不可用，请确保环境依赖完整。
 
 - 2025-07-23
   - 新增摘要文件导出功能，支持将简要摘要和详细摘要导出至 data/output 文件夹
@@ -41,6 +42,8 @@ LLMReader 是一个基于大语言模型（LLM）的文档分析与智能问答�
 ```bash
 pip install -r requirements.txt
 ```
+
+如遇依赖缺失报错（如 ImportError: No module named ...），请检查 requirements.txt 并重新安装所有依赖。
 
 ---
 
@@ -75,16 +78,17 @@ LLMReader/
 
 ```
 
-- **所有缓存和中间数据均自动存储在 `data/` 目录下**，无需手动管理。
-- repo 中 data 目录下仅存放样例的 pdf 和 output
+**output/ 目录说明**：每个文档目录下会生成 `brief_summary.md`、`brief_summary.pdf`、`detail_summary.md`、`detail_summary.pdf` 四个文件。
 
 ---
 
 ## 使用方法
 
 ### 1. **准备 PDF 文件**
-  - 将 PDF 文件放入 data/pdf/ 目录（首次使用需手动创建该目录）。 例如：`data/pdf/your_file.pdf`
+  - 将 PDF 文件放入 data/pdf/ 目录（首次使用需手动创建该目录）。
   - 如需解析网页，准备好目标 URL
+
+> 输入 PDF 文件名时无需包含路径，仅需文件名（如 1018686.pdf）。
 
 ### 2. **运行主程序**
   - 在项目根目录下运行：
@@ -94,12 +98,14 @@ LLMReader/
   - 程序默认处理预设 PDF 文件（可在代码中修改默认配置）
   - 可根据提示输入 PDF 文件名（无需包含路径）或网页 URL
   - 自动生成简要摘要（brief_summary）和详细摘要（detail_summary）导出至 data/output 文件夹。
+每个文档目录下会生成 brief_summary.md、brief_summary.pdf、detail_summary.md、detail_summary.pdf 四个文件。
 
 ### 3. 交互问答
   - 程序自动提取内容并生成章节摘要
   - 建议提问时带上章节名，如："请解释 Introduction 章节内容"
-   - 输入 `退出`、`再见`、`bye`、`exit`、`quit` 可结束对话。
+  - 输入 `退出`、`再见`、`bye`、`exit`、`quit` 可结束对话。
 
+- 最好在阅读过已有的总结内容再进行提问对话，会大致理解文章的框架。
 
 ---
 
@@ -107,7 +113,7 @@ LLMReader/
 
 - 支持 Azure OpenAI、OpenAI、Ollama 三种 LLM provider。
 - 可在 `PDFReader` 初始化时通过 `provider` 参数指定（默认 `azure`）。
-- 相关 API key、endpoint、模型等配置请在 `src/config.py` 中修改。
+- 相关 API key、endpoint、模型等配置请在 `src/config/settings.py` 中修改，或通过环境变量设置（如 `CHAT_API_KEY`、`CHAT_MODEL_NAME` 等）。
 
 ---
 
@@ -135,6 +141,8 @@ LLMReader/
   - 请确保 PDF 文件已放入 `data/pdf/` 目录，文件名输入正确。
 - **Q: LLM API 报错？**
   - 请检查 `config.py` 中的 API key、endpoint、模型等配置是否正确。
+- **Q: 依赖缺失导致 ImportError？**
+  - 请检查 requirements.txt 是否已完整安装所有依赖。可重新运行 `pip install -r requirements.txt`。
 - **Q: 处理速度慢？**
   - 首次处理大文件时会较慢，后续会自动复用缓存。
 - **Q: 如何切换 LLM provider？**

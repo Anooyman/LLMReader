@@ -1,29 +1,39 @@
 
 from langchain.text_splitter import TextSplitter
 import tiktoken
+import logging
+
+# 配置日志
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger(__name__)
+
 
 class StrictOverlapSplitter(TextSplitter):
     """
     严格控制相邻文本块之间重叠段落数量的文本分割器
     确保相邻块之间只重叠指定数量的段落，不会出现额外重复
     """
-    def __init__(self, 
-                 overlap: int = 0, 
-                 token_threshold: int = 1000, 
-                 model: str = "gpt-4o",
-                 delimiter: str = '\n\n',  # 新增切分符参数
-                 **kwargs):
+    def __init__(
+            self, 
+            overlap: int = 0, 
+            token_threshold: int = 1000, 
+            model: str = "gpt-4o",
+            delimiter: str = '\n\n',  # 新增切分符参数
+            split_count = 10,
+            **kwargs):
+
         super().__init__(** kwargs)
         self.overlap = max(0, overlap)  # 重叠的段落数量
         self.token_threshold = max(1, token_threshold)  # token阈值
         self.model = model
         self.delimiter = delimiter  # 存储切分符
+        self.split_count = split_count
         
         # 初始化token编码器
         try:
             self.encoding = tiktoken.encoding_for_model(model)
         except KeyError:
-            print(f"模型 {model} 未找到，使用默认编码o200k_base")
+            logger.info(f"模型 {model} 未找到，使用默认编码o200k_base")
             self.encoding = tiktoken.get_encoding("o200k_base")
 
     def count_tokens(self, text: str) -> int:
@@ -66,14 +76,14 @@ class StrictOverlapSplitter(TextSplitter):
                 # 检查单个段落是否超过阈值
                 current_text = self.delimiter.join(paragraphs[current_start:current_end])
                 if self.count_tokens(current_text) > self.token_threshold:
-                    print(f"警告: 单个段落的token数({self.count_tokens(current_text)})超过阈值({self.token_threshold})")
+                    logger.info(f"警告: 单个段落的token数({self.count_tokens(current_text)})超过阈值({self.token_threshold})")
             
             # 添加当前块
             current_chunk = self.delimiter.join(paragraphs[current_start:current_end])
             # 修改为字典格式，添加页码信息
             final_chunks.append({
                 "data": current_chunk,
-                "page": len(final_chunks) + 1  # 页码从1开始计数
+                "page": str(len(final_chunks) + 1)  # 页码从1开始计数
             })
             
             # 计算下一个块的起始位置，确保只重叠指定数量的段落
@@ -96,5 +106,22 @@ class StrictOverlapSplitter(TextSplitter):
             prev_chunk = final_chunks[-2]["data"]
             if last_chunk in prev_chunk:
                 final_chunks.pop()
-        
+
         return final_chunks
+
+    def split_into_chunks(self, data_list):
+        """
+        将数据列表按指定大小分块
+
+        Args:
+            data_list (list): 需要分块的数据列表
+
+        Returns:
+            list: 包含分块后子列表的列表
+
+        Example:
+            >>> splitter = StrictOverlapSplitter(split_count=2)
+            >>> splitter.split_into_chunks([1,2,3,4,5])
+            [[1,2], [3,4], [5]]
+        """
+        return [data_list[i:i + self.split_count] for i in range(0, len(data_list), self.split_count)]

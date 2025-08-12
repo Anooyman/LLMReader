@@ -28,7 +28,7 @@ class VectorDBClient(LLMBase):
             FAISS: 构建的向量数据库对象。
         """
         logger.info(f"开始构建向量数据库，文档数: {len(content_docs)}")
-        vector_db = FAISS.from_documents(content_docs, self.embbeding_model)
+        vector_db = FAISS.from_documents(content_docs, self.embedding_model)
         vector_db.save_local(self.db_path)
         logger.info(f"向量数据库已保存到: {self.db_path}")
         return vector_db 
@@ -43,5 +43,5 @@ class VectorDBClient(LLMBase):
             FAISS: 加载的向量数据库对象。
         """
         logger.info(f"加载本地向量数据库: {self.db_path}")
-        return FAISS.load_local(self.db_path, self.embbeding_model, allow_dangerous_deserialization=True)
+        return FAISS.load_local(self.db_path, self.embedding_model, allow_dangerous_deserialization=True)
 

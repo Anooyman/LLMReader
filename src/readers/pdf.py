@@ -42,7 +42,7 @@ class PDFReader(ReaderBase):
         self.pdf_image_path = PDF_IMAGE_PATH
         self.pdf_path = PDF_PATH
         self.pdf_raw_data = None
-        self.chunk_count = 30  # 每个分块的大小
+        self.chunk_count = 20  # 每个分块的大小
 
         for path in [self.pdf_image_path, self.pdf_path]:
             makedir(path)
@@ -56,8 +56,8 @@ class PDFReader(ReaderBase):
         Returns:
             List[Dict[str, Any]]: 每页图片的内容和页码。
         """
-        output_folder_path = os.path.join(self.pdf_image_path, get_pdf_name(pdf_file_path))
-        pdf_path = os.path.join(self.pdf_path, pdf_file_path)
+        output_folder_path = os.path.join(self.pdf_image_path, pdf_file_path)
+        pdf_path = os.path.join(self.pdf_path, f"{pdf_file_path}.pdf")
         logger.info(f"开始处理PDF: {pdf_path}")
         pdf_to_images(pdf_path, output_folder_path)
         image_paths = read_images_in_directory(output_folder_path)
@@ -184,7 +184,7 @@ class PDFReader(ReaderBase):
         """
         logger.info(f"启动主流程，处理 PDF 文件: {pdf_file_path}")
 
-        self.process_pdf(pdf_file_path, save_data_flag)
+        self.process_pdf(get_pdf_name(pdf_file_path), save_data_flag)
         while True:
             user_input = input("You: ")
             if user_input.lower() in ["退出", "再见", "bye", "exit", "quit"]:
