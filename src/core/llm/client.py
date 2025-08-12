@@ -1,6 +1,11 @@
+"""
+client.py - LLM provider and message history management for LLMReader
+
+This module provides classes for managing chat message history with limits, and for abstracting over different LLM providers (Azure, OpenAI, Ollama).
+"""
 import logging
 import tiktoken
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from pydantic import Field
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
 from langchain.prompts import ChatPromptTemplate, HumanMessagePromptTemplate, MessagesPlaceholder
@@ -14,12 +19,10 @@ from langchain_community.embeddings import OllamaEmbeddings
 
 from abc import ABC, abstractmethod
 
-from src.utils.helpers import extract_data_from_LLM_res
 from src.config.settings import (
     LLM_CONFIG,
     LLM_EMBEDDING_CONFIG,
     SYSTEM_PROMPT_CONFIG,
-    ReaderRole,
 )
 logging.basicConfig(
     level=logging.INFO,  # 可根据需要改为 DEBUG
@@ -31,6 +34,9 @@ logger = logging.getLogger(__name__)
 class LimitedChatMessageHistory(InMemoryChatMessageHistory):
     """
     带有限制功能的聊天消息历史记录管理类
+
+    注意：虽然 max_messages, max_tokens, encoding_name 使用了 Pydantic 的 Field，
+    但本类并非 Pydantic BaseModel，Field 仅用于类型提示和默认值说明，实际初始化请看 __init__。
 
     扩展InMemoryChatMessageHistory，增加以下功能：
     - 消息数量限制：通过max_messages参数控制最大消息条数
@@ -47,7 +53,9 @@ class LimitedChatMessageHistory(InMemoryChatMessageHistory):
     encoding_name: Optional[str] = Field(default="o200k_base")  # 你可以根据模型换成合适的encoding
 
     def __init__(self, **kwargs):
+        # NOTE: These are not Pydantic fields, just for type hinting/default doc
         super().__init__(**kwargs)
+        self.max_messages = kwargs.get("max_messages", 20)
         self.max_tokens = kwargs.get("max_tokens", 32768)
         self.encoding_name = kwargs.get("encoding_name", "o200k_base")
         # 你可以在这里做额外的初始化
@@ -55,43 +63,46 @@ class LimitedChatMessageHistory(InMemoryChatMessageHistory):
     def _count_tokens(self, message):
         """
         计算单条消息的Token数量
-
         Args:
             message: 聊天消息对象，需包含content属性
-
         Returns:
             int: 消息内容的Token数量
-
         Note:
             优先使用tiktoken进行精确计算，如未安装则使用字符数/4进行估算
         """
-        # 这里用 tiktoken 统计 token 数
         try:
+            import tiktoken
             encoding = tiktoken.get_encoding(self.encoding_name)
             if hasattr(message, "content"):
                 return len(encoding.encode(message.content))
             else:
                 return 0
         except ImportError:
-            # 没装 tiktoken 就简单估算
+            logger.warning("tiktoken not installed, using rough token estimate.")
             if hasattr(message, "content"):
                 return len(message.content) // 4
             else:
                 return 0
+        except Exception as e:
+            logger.error(f"Error counting tokens: {e}")
+            return 0
 
     def _total_tokens(self):
+        """计算所有消息的总Token数"""
         return sum(self._count_tokens(m) for m in self.messages)
 
     def add_message(self, message):
+        """
+        添加消息到历史，并自动根据 max_messages 和 max_tokens 进行裁剪。
+        """
         super().add_message(message)
-        
         # 1. 限制消息条数 - 保留最新的max_messages条消息
         if len(self.messages) > self.max_messages:
+            logger.info(f"[LimitedChatMessageHistory] 消息数量超出限制({self.max_messages})，已截断。")
             self.messages = self.messages[-self.max_messages:]
-            logger.debug(f"消息数量超出限制，已截断至{self.max_messages}条")
-        
         # 2. 限制Token总数 - 循环移除最早消息直到Token数达标
         while self._total_tokens() > self.max_tokens and len(self.messages) > 1:
+            logger.info(f"[LimitedChatMessageHistory] Token总数超出限制({self.max_tokens})，移除最早消息。")
             self.messages.pop(0)
 
 
@@ -163,8 +174,13 @@ class OllamaLLMProvider(LLMProviderBase):
 class LLMBase:
     """
     LLMBase 统一调度各类 LLMProvider。
+    管理多会话历史，支持不同 LLM provider。
     """
     def __init__(self, provider: str) -> None:
+        """
+        Args:
+            provider (str): 'azure', 'openai', 'ollama'
+        """
         self.message_histories = {}
         self.provider = provider.lower()
         self.providers = {
@@ -186,19 +202,26 @@ class LLMBase:
             对应 provider 的 chat model 实例。
         """
         if self.provider not in self.providers:
+            logger.error(f"Unknown provider: {self.provider}")
             raise ValueError(f"Unknown provider: {self.provider}")
         return self.providers[self.provider].get_chat_model(**kwargs)
 
     def get_message_history(self, session_id=None):
-        # 根据 session_id 获取对应的对话历史
+        """
+        获取指定 session_id 的消息历史，没有则自动创建。
+        """
         if session_id not in self.message_histories:
             if session_id in ["chat"]:
                 self.message_histories[session_id] = LimitedChatMessageHistory()
             else:
                 self.message_histories[session_id] = LimitedChatMessageHistory(max_messages=3)
+            logger.info(f"[get_message_history] 新建 session_id: {session_id}")
         return self.message_histories[session_id]
 
     def add_message_to_history(self, session_id=None, message=None):
+        """
+        向指定 session_id 的历史添加消息。
+        """
         if message is None:
             message = HumanMessage("")  # 或 SystemMessage("")，根据你的业务场景
         if session_id not in self.message_histories:
@@ -208,16 +231,15 @@ class LLMBase:
             else:
                 self.message_histories[session_id] = LimitedChatMessageHistory(max_messages=3)
         self.message_histories[session_id].add_message(message)
+        logger.debug(f"[add_message_to_history] session_id={session_id}, message={message}")
 
     def is_content_in_history(self, content, session_id=None, exact_match=False):
         """
         判断 content 是否在 session_id 的历史消息中出现过。
-
         Args:
             content (str): 要查找的内容。
             session_id (Any): 会话ID。
             exact_match (bool): 是否要求完全匹配（默认False，表示只要包含即可）。
-
         Returns:
             bool: True 表示找到匹配内容，False 表示未找到。
         """
@@ -249,14 +271,12 @@ class LLMBase:
         # 1. output_parser 默认用 StrOutputParser，如果没传入的话
         if not output_parser:
             output_parser = StrOutputParser()
-
         # 2. 构建 prompt，包含 system prompt、历史消息和用户输入
         prompt = ChatPromptTemplate.from_messages([
             SystemMessage(content=system_prompt),
             MessagesPlaceholder(variable_name="chat_history"),
             HumanMessagePromptTemplate.from_template("{input_prompt}"),
         ])
-
         # 3. 返回带有历史消息管理的 RunnableWithMessageHistory
         return RunnableWithMessageHistory(
             (prompt | client | output_parser).with_config(tool=tools),
@@ -272,6 +292,9 @@ class LLMBase:
         output_parser=None,
         tools=None,
     ):
+        """
+        异步构建对话链（实际调用同步 build_chain）。
+        """
         return self.build_chain(
             client=client,
             system_prompt=system_prompt,
@@ -280,12 +303,20 @@ class LLMBase:
         )
 
     def get_chat_model(self, **kwargs):
+        """
+        获取当前 provider 的 chat model。
+        """
         if self.provider not in self.providers:
+            logger.error(f"Unknown provider: {self.provider}")
             raise ValueError(f"Unknown provider: {self.provider}")
         return self.providers[self.provider].get_chat_model(**kwargs)
 
     def get_embedding_model(self, **kwargs):
+        """
+        获取当前 provider 的 embedding model。
+        """
         if self.provider not in self.providers:
+            logger.error(f"Unknown provider: {self.provider}")
             raise ValueError(f"Unknown provider: {self.provider}")
         return self.providers[self.provider].get_embedding_model(**kwargs)
 
@@ -309,117 +340,26 @@ class LLMBase:
             Any: LLM 响应对象。
         """
         logger.info(f"调用LLM: role={role}, session_id={session_id}")
-
         system_prompt = SYSTEM_PROMPT_CONFIG.get(role)
-
         if system_format_dict:
             try:
                 system_prompt = system_prompt.format(**system_format_dict)
             except KeyError as e:
                 logger.error(f"系统提示词格式化失败，缺少参数: {e}")
-
         chain = self.build_chain(
             client=self.chat_model,
             system_prompt=system_prompt,
             output_parser=output_parser
         )
-        response = chain.invoke(
-            {"input_prompt": input_prompt},
-            config={"configurable": {"session_id": session_id}}
-        )
-        logger.info(f"LLM调用完成: role={role}, session_id={session_id}")
-        return response
-
-    def get_basic_info(self, raw_data) -> Dict[str, Any]:
-        """
-        获取 PDF 的基本信息摘要。
-        Get basic summary information of the PDF.
-        Args:
-            pdf_raw_data: PDF 原始数据。
-        Returns:
-            Dict[str, Any]: 基本信息摘要。
-        """
-        input_prompt = f"这里是文章的完整内容: {raw_data}"
-        response = self.call_llm_chain(ReaderRole.COMMON, input_prompt, "common")
-        logger.info("已获取文章基本信息摘要。")
-        return extract_data_from_LLM_res(response)
-
-    def get_agenda(self, raw_data) -> List[Dict[str, Any]]:
-        """
-        获取 PDF 的目录结构或议程。
-        Get the agenda or table of contents of the PDF.
-        Args:
-            pdf_raw_data: PDF 原始数据。
-        Returns:
-            List[Dict[str, Any]]: 目录结构列表。
-        """
-        input_prompt = f"这里是文章的完整内容: {raw_data}"
-        response = self.call_llm_chain(ReaderRole.AGENDA, input_prompt, "agenda")
-        logger.info(f"Directory Structure: {response}")
-        return extract_data_from_LLM_res(response)
-
-    def get_sub_agenda(self, raw_data) -> List[Dict[str, Any]]:
-        """
-        获取 PDF 的目录结构或议程。
-        Get the sub agenda or table of contents of the PDF.
-        Args:
-            pdf_raw_data: PDF 原始数据。
-        Returns:
-            List[Dict[str, Any]]: 目录结构列表。
-        """
-        input_prompt = f"这里是文章的完整内容: {raw_data}"
-        response = self.call_llm_chain(ReaderRole.SUB_AGENDA, input_prompt, "agenda")
-        logger.info(f"Sub Directory Structure: {response}")
-        return extract_data_from_LLM_res(response)
-
-    def summary_content(self, title: str, content: Any) -> Any:
-        """
-        针对某一章节内容进行总结。
-        Summarize the content of a specific section.
-        Args:
-            title (str): 章节标题。
-            content (Any): 章节内容。
-        Returns:
-            Any: 总结内容。
-        """
-        input_prompt = f"请总结{title}的内容，上下文如下：{content}"
-        response = self.call_llm_chain(ReaderRole.SUMMARY, input_prompt, "summary")
-        logger.info(f"章节 {title} 总结完成。")
-        return response
-
-    def refactor_content(self, title: str, content: Any) -> Any:
-        """
-        针对某一章节内容进行总结。
-        Summarize the content of a specific section.
-        Args:
-            title (str): 章节标题。
-            content (Any): 章节内容。
-        Returns:
-            Any: 总结内容。
-        """
-        input_prompt = f"请重新整理Content中的内容。\n\n Content：{content}"
-        response = self.call_llm_chain(ReaderRole.REFACTOR, input_prompt, "refactor")
-        logger.info(f"章节 {title} 内容重构完成。")
-        return response
- 
-
-    def get_answer(self, context_data: Any, query: str, common_data: Any = "") -> Any:
-        """
-        综合所有摘要和基本信息，生成最终详细回答。
-        Generate a detailed answer based on all summaries and basic info.
-        Args:
-            context_data (Any): 上下文数据。
-            query (str): 问题。
-            common_data (Any, optional): 背景信息。
-        Returns:
-            Any: 最终回答。
-        """
-        if common_data:
-            input_prompt = f"请结合检索回来的上下文信息(Context data)回答客户问题\n\n ===== \n\nQuestion:{query}\n\n ===== \n\n Context data:{common_data}\n\n ===== \n\n{context_data}"
-        else:
-            input_prompt = f"请结合检索回来的上下文信息(Context data)回答客户问题\n\n ===== \n\nQuestion:{query}\n\n ===== \n\n Context data:{context_data}"
-        logger.info("开始生成回答...")
-        response = self.call_llm_chain(ReaderRole.ANSWER, input_prompt, "answer")
-        logger.info("回答生成完毕。")
+        try:
+            response = chain.invoke(
+                {"input_prompt": input_prompt},
+                config={"configurable": {"session_id": session_id}}
+            )
+            logger.info(f"LLM调用完成: role={role}, session_id={session_id}")
+        except Exception as e:
+            logger.error(f"{role} invoke llm 报错，错误如下：{e}")
+            # TODO: 可根据业务需求决定是否抛出异常或返回特定错误对象
+            response = ""
         return response
 

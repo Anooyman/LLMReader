@@ -42,7 +42,7 @@ class PDFReader(ReaderBase):
         self.pdf_image_path = PDF_IMAGE_PATH
         self.pdf_path = PDF_PATH
         self.pdf_raw_data = None
-        self.chunk_count = 30  # 每个分块的大小
+        self.chunk_count = 20  # 每个分块的大小
 
         for path in [self.pdf_image_path, self.pdf_path]:
             makedir(path)

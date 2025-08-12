@@ -8,6 +8,38 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
+def list_pdf_files(folder_path="data/pdf"):
+    """
+    读取指定文件夹下的所有文件，返回文件名列表
+    """
+    if not os.path.exists(folder_path):
+        logging.warning(f"文件夹不存在: {folder_path}")
+        return []
+    return [f for f in os.listdir(folder_path) if os.path.isfile(os.path.join(folder_path, f))]
+
+
+def load_md_file(file_path):
+        """
+        读取本地Markdown文件的内容
+        
+        参数:
+            file_path (str): Markdown文件的路径
+            
+        返回:
+            str: 文件内容，如果出错则返回None
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file:
+                content = file.read()
+                return content
+        except FileNotFoundError:
+            print(f"错误: 找不到文件 '{file_path}'")
+        except UnicodeDecodeError:
+            print(f"错误: 无法解码文件 '{file_path}'，可能不是UTF-8编码")
+        except Exception as e:
+            print(f"读取文件时发生错误: {str(e)}")
+        return None
+
 def read_images_in_directory(directory_path: str) -> List[str]:
     """
     读取指定目录下所有支持格式的图片文件路径。
@@ -176,8 +208,8 @@ def deduplicate_by_title(data):
     seen = set()
     result = []
     for item in data:
-        #title = normalize_chapter(item.get('title'))
-        title = item.get('title')
+        title = normalize_chapter(item.get('title'))
+        #title = item.get('title')
         if title not in seen:
             seen.add(title)
             result.append(item)

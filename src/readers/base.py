@@ -2,13 +2,15 @@ import json
 import logging
 import markdown
 from weasyprint import HTML
+from typing import Any, Dict, List
 
 from langchain.docstore.document import Document
 from src.core.llm.client import LLMBase
 from src.config.settings import (
     JSON_DATA_PATH,
     OUTPUT_PATH,
-    VECTOR_DB_PATH
+    VECTOR_DB_PATH,
+    ReaderRole,
 )
 from src.utils.helpers import *
 
@@ -156,7 +158,7 @@ class ReaderBase(LLMBase):
         total_answer = ""
 
         # 构造用于生成详细摘要的查询模板
-        query = "按照人类的习惯理解并且总结 {title} 的内容。最后以 blog 的格式返回，需要注意标题(如果标题中有数字则需要写出到结果中)，换行，加粗关键信息。仅需要返回相关内容的总结信息，多余的话无需返回。不需要对章节进行单独总结。返回中文"
+        query = "按照人类的习惯理解并且总结 {title} 的内容。需要注意标题(如果标题中有数字则需要写出到结果中)，换行，加粗关键信息。仅需要返回相关内容的总结信息，多余的话无需返回。不需要对章节进行单独总结。返回中文"
 
         # 记录开始生成详细摘要的日志
         logger.info(f"开始生成详细摘要，共包含 {len(raw_data_dict)} 个部分...")
@@ -227,6 +229,7 @@ class ReaderBase(LLMBase):
     
                 elif summary_type == "detail_summary":
                     self.get_detail_summary(raw_data_dict, mis_type)
+
             else:
                 # 所有格式文件都已存在，无需生成
                 logger.info(f"摘要类型 {summary_type} 的所有文件格式均已存在，无需生成")
@@ -402,6 +405,97 @@ class ReaderBase(LLMBase):
             total_page_content.extend(page_content)
 
         logger.info(f"检索数据完成，涉及章节数: {len(title_list)}")
-        logger.info(f"检索数据完成，涉及页数: {total_page_content}")
+        logger.info(f"检索数据完成，涉及页数: {list(set(total_page_content))}")
         return context_data
 
+    def get_basic_info(self, raw_data) -> Dict[str, Any]:
+        """
+        获取 PDF 的基本信息摘要。
+        Get basic summary information of the PDF.
+        Args:
+            pdf_raw_data: PDF 原始数据。
+        Returns:
+            Dict[str, Any]: 基本信息摘要。
+        """
+        input_prompt = f"这里是文章的完整内容: {raw_data}"
+        response = self.call_llm_chain(ReaderRole.COMMON, input_prompt, "common")
+        logger.info("已获取文章基本信息摘要。")
+        return extract_data_from_LLM_res(response)
+
+    def get_agenda(self, raw_data) -> List[Dict[str, Any]]:
+        """
+        获取 PDF 的目录结构或议程。
+        Get the agenda or table of contents of the PDF.
+        Args:
+            pdf_raw_data: PDF 原始数据。
+        Returns:
+            List[Dict[str, Any]]: 目录结构列表。
+        """
+        input_prompt = f"这里是文章的完整内容: {raw_data}"
+        response = self.call_llm_chain(ReaderRole.AGENDA, input_prompt, "agenda")
+        logger.info(f"Directory Structure: {response}")
+        return extract_data_from_LLM_res(response)
+
+    def get_sub_agenda(self, raw_data) -> List[Dict[str, Any]]:
+        """
+        获取文章的目录结构或议程。
+        Get the sub agenda or table of contents of the paper.
+        Args:
+            raw_data: 文章原始数据。
+        Returns:
+            List[Dict[str, Any]]: 目录结构列表。
+        """
+        input_prompt = f"这里是文章的完整内容: {raw_data}"
+        response = self.call_llm_chain(ReaderRole.SUB_AGENDA, input_prompt, "agenda")
+        logger.info(f"Sub Directory Structure: {response}")
+        return extract_data_from_LLM_res(response)
+
+    def summary_content(self, title: str, content: Any) -> Any:
+        """
+        针对某一章节内容进行总结。
+        Summarize the content of a specific section.
+        Args:
+            title (str): 章节标题。
+            content (Any): 章节内容。
+        Returns:
+            Any: 总结内容。
+        """
+        input_prompt = f"请总结{title}的内容，上下文如下：{content}"
+        response = self.call_llm_chain(ReaderRole.SUMMARY, input_prompt, "summary")
+        logger.info(f"章节 {title} 总结完成。")
+        return response
+
+    def refactor_content(self, title: str, content: Any) -> Any:
+        """
+        针对某一章节内容进行总结。
+        Summarize the content of a specific section.
+        Args:
+            title (str): 章节标题。
+            content (Any): 章节内容。
+        Returns:
+            Any: 总结内容。
+        """
+        input_prompt = f"请重新整理Content中的内容。\n\n Content：{content}"
+        response = self.call_llm_chain(ReaderRole.REFACTOR, input_prompt, "refactor")
+        logger.info(f"章节 {title} 内容重构完成。")
+        return response
+ 
+    def get_answer(self, context_data: Any, query: str, common_data: Any = "") -> Any:
+        """
+        综合所有摘要和基本信息，生成最终详细回答。
+        Generate a detailed answer based on all summaries and basic info.
+        Args:
+            context_data (Any): 上下文数据。
+            query (str): 问题。
+            common_data (Any, optional): 背景信息。
+        Returns:
+            Any: 最终回答。
+        """
+        if common_data:
+            input_prompt = f"请结合检索回来的上下文信息(Context data)回答客户问题\n\n ===== \n\nQuestion:{query}\n\n ===== \n\n Context data:{common_data}\n\n ===== \n\n{context_data}"
+        else:
+            input_prompt = f"请结合检索回来的上下文信息(Context data)回答客户问题\n\n ===== \n\nQuestion:{query}\n\n ===== \n\n Context data:{context_data}"
+        logger.info("开始生成回答...")
+        response = self.call_llm_chain(ReaderRole.ANSWER, input_prompt, "answer")
+        logger.info("回答生成完毕。")
+        return response

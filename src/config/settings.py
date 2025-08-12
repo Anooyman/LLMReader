@@ -7,13 +7,19 @@ class MCPToolName:
 
 MCP_CONFIG = {
   MCPToolName.WEB_SEARCH: {
-    "fetch": {
-      "command": "python",
-      "args": [
-        "-m",
-        "mcp_server_fetch"
-      ]
+    "browser": {
+        "command": "npx",
+        "args": [
+            "@agent-infra/mcp-server-browser@latest"
+        ],
     },
+    #"fetch": {
+    #  "command": "python",
+    #  "args": [
+    #    "-m",
+    #    "mcp_server_fetch"
+    #  ]
+    #},
     #"playwright": {
     #    "type": "stdio",
     #    "command": "npx",
@@ -329,7 +335,7 @@ E = mc^2
 - 如果分类信息中包含空格或标点符号，应严格按照原有形式进行保留。
 - 当 context 中存在新分类，直接添加至整理后的输出中。
 - 如 context 格式不一致，则忽略该部分内容（不做整理）。
-"""
+""",
 
 }
 

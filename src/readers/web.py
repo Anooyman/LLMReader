@@ -224,7 +224,7 @@ class WebReader(ReaderBase):
             raise ValueError(f"未找到MCP工具配置: {MCPToolName.WEB_SEARCH}")
 
         # 构建获取网页内容的提示词（要求Markdown格式便于后续处理）
-        input_prompt = f"请获取该URL的所有当前内容: {url}，并以Markdown格式返回全部信息。"
+        input_prompt = f"请获取该URL的所有当前内容: {url}，并以Markdown格式返回全部和文章主要内容相关的文字信息。"
         logger.info(f"开始获取网页内容: {url}")
 
         # 调用MCP服务获取内容
@@ -292,7 +292,7 @@ class WebReader(ReaderBase):
                     makedir(self.output_path)  # 创建输出目录
                     self.save_data_to_file(summary, url_name)  # 保存摘要
                     logger.info(f"摘要已保存到: {self.output_path}")
-
+                print(f"Web Summary: {summary}")
             self.web_content = content_str  # 保存完整内容用于问答
 
         else:
@@ -358,7 +358,11 @@ class WebReader(ReaderBase):
                 system_format_dict={"agenda_dict": self.agenda_dict}
             )
             logger.debug(f"LLM问题解析响应: {response[:200]}...")
-
+            print("====="*10)
+            print(self.agenda_dict)
+            print("====="*10)
+            print(response)
+ 
             try:
                 # 提取检索关键词
                 extract_response = extract_data_from_LLM_res(response)
@@ -376,7 +380,7 @@ class WebReader(ReaderBase):
         logger.info(f"对话回答生成完毕，长度: {len(answer)}字符")
         return answer
 
-    async def main(self, url: str) -> None:
+    async def main(self, url: str, save_data_flag: bool=True) -> None:
         """
         程序主入口，处理网页URL并启动交互式对话
 
@@ -388,7 +392,7 @@ class WebReader(ReaderBase):
         Args:
             url (str): 要处理的网页URL（需完整且可访问）
         """
-        await self.process_web(url)
+        await self.process_web(url, save_data_flag)
         logger.info("网页内容处理完成，开始交互式对话（输入'退出'结束）")
 
         while True:
