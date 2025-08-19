@@ -352,10 +352,13 @@ def extract_name_from_url(url):
     # 去除URL中的协议部分（如http://、https://）
     url_without_protocol = url.split('://')[-1]
     # 去除域名部分（如medium.com、@lucknitelol等）
-    path_parts = url_without_protocol.split('/')[-1:]  # 针对该URL结构，取域名后的路径部分
+    path_parts = url_without_protocol.split('/')[-2:]  # 针对该URL结构，取域名后的路径部分
     # 提取URL中以连字符连接的关键内容部分
     if path_parts:
-        name_part = path_parts[-1]
+        if path_parts[-1]:
+            name_part = path_parts[-1]
+        else:
+            name_part = path_parts[-2]
         # 将连字符替换为空格
         name = name_part.replace('-', ' ')
         return name

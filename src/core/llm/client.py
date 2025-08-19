@@ -4,7 +4,6 @@ client.py - LLM provider and message history management for LLMReader
 This module provides classes for managing chat message history with limits, and for abstracting over different LLM providers (Azure, OpenAI, Ollama).
 """
 import logging
-import tiktoken
 from typing import Any, Optional
 from pydantic import Field
 from langchain_openai import AzureChatOpenAI, AzureOpenAIEmbeddings
@@ -214,7 +213,7 @@ class LLMBase:
             if session_id in ["chat"]:
                 self.message_histories[session_id] = LimitedChatMessageHistory()
             else:
-                self.message_histories[session_id] = LimitedChatMessageHistory(max_messages=3)
+                self.message_histories[session_id] = LimitedChatMessageHistory(max_messages=5)
             logger.info(f"[get_message_history] 新建 session_id: {session_id}")
         return self.message_histories[session_id]
 
@@ -229,7 +228,7 @@ class LLMBase:
             if session_id in ["chat"]:
                 self.message_histories[session_id] = LimitedChatMessageHistory()
             else:
-                self.message_histories[session_id] = LimitedChatMessageHistory(max_messages=3)
+                self.message_histories[session_id] = LimitedChatMessageHistory(max_messages=5)
         self.message_histories[session_id].add_message(message)
         logger.debug(f"[add_message_to_history] session_id={session_id}, message={message}")
 
